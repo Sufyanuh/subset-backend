@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: subset
+    restart: always
+    ports:
+      - "8116:8116"       # host:container
+    volumes:
+      - .:/app            # Mount current dir to container
+      - /app/node_modules # Prevent overwriting node_modules
+    environment:
+      NODE_ENV: production
+    command: npm run dev
+    networks:
+      - subset
+
+networks:
+  subset:
+    driver: bridge
+
