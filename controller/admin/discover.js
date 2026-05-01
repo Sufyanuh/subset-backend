@@ -93,7 +93,7 @@ export const AddDiscoverVideo = async (req, res) => {
 
     // 🔥 STEP 2: new docs prepare karo
     const newVideos = image.map((vid, i) => {
-      if (!vid.url || !vid.tag || !vid.categories || !vid.title) {
+      if (!vid.url || !vid.tags || !vid.categories || !vid.title) {
         throw new Error(
           `Video ${i + 1} ka URL, Tags, Categories aur Title required hai`,
         );
@@ -104,7 +104,7 @@ export const AddDiscoverVideo = async (req, res) => {
         image: vid.thumbnail || vid.url, // thumbnail fallback
         videoUrl: vid.url,
         type: "video",
-        tags: vid.tag,
+        tags: vid.tags,
         categories: vid.categories,
         source: source || "",
         sourceType: sourceType || "",

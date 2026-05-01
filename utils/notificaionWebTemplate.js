@@ -5,7 +5,7 @@ export const generateEmailTemplate = (user, groupedNotifications, date) => {
   const username = user.fullName || user.username || user.name || "User";
 
   // Helper functions
-  const truncateText = (text, maxLength = 120) => {
+  const truncateText = (text, maxLength = 220) => {
     if (!text) return "";
     if (text.length <= maxLength) return text;
     return text.substring(0, maxLength) + "....";
