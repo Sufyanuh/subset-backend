@@ -297,6 +297,7 @@ export const GetDiscover = async (req, res) => {
     res.status(500).json({ message: errors.message, errors });
   }
 };
+
 export const GetDiscoverById = async (req, res) => {
   const reqId = req.params.id;
   try {
