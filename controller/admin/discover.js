@@ -149,7 +149,7 @@ export const AddDiscoverAudio = async (req, res) => {
 
     // 🔥 STEP 2: prepare bulk insert
     const audioDocs = image.map((audio, i) => {
-      if (!audio.url || !audio.tag || !audio.categories || !audio.title) {
+      if (!audio.url || !audio.tags || !audio.categories || !audio.title) {
         throw new Error(
           `Audio ${i + 1} ka URL, Tags, Categories aur Title required hai`,
         );
@@ -160,7 +160,7 @@ export const AddDiscoverAudio = async (req, res) => {
         image: audio.url, // audio file URL
         thumbnail: audio.thumbnail || "",
         type: "mp3",
-        tags: audio.tag,
+        tags: audio.tags,
         categories: audio.categories,
         source: source || "",
         sourceType: sourceType || "",
