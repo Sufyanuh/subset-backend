@@ -351,22 +351,46 @@ export const deleteDiscover = async (req, res) => {
       return res.status(400).json({ message: "ID is required" });
     }
 
-    // 🟢 Find and delete discover entry
-    const discover = await Discover.findByIdAndDelete(id);
-    await DiscoverforLogin.deleteMany({ discoverId: id });
+    // 🟢 Find entry first to get its date
+    const discover = await Discover.findById(id);
     if (!discover) {
       return res.status(404).json({ message: "Discover not found" });
     }
 
+    const dateKey = new Date(discover.uploadAt).toISOString().split("T")[0];
+
+    // 🟢 Find and delete discover entry
+    await Discover.findByIdAndDelete(id);
+    await DiscoverforLogin.deleteMany({ discoverId: id });
+
     // 🟢 Delete related file from S3 (if it exists)
     if (
+      discover.image && 
       discover.image.includes("https://subsetdevv1.s3.us-east-1.amazonaws.com")
     ) {
       await deleteFromS3(discover.image);
     }
 
-    // ✅ Same response as before
-    res.status(200).json({ message: "Discover deleted successfully" });
+    // 🟢 Fix Index Gaps (Re-sequence the remaining items on the same UTC date)
+    const start = new Date(dateKey);
+    const end = new Date(dateKey + "T23:59:59.999Z");
+
+    const remainingDocs = await Discover.find({
+      uploadAt: { $gte: start, $lte: end },
+    }).sort({ index: 1 });
+
+    if (remainingDocs.length > 0) {
+      const bulkOps = remainingDocs.map((doc, i) => ({
+        updateOne: {
+          filter: { _id: doc._id },
+          update: { $set: { index: i } },
+        },
+      }));
+      await Discover.bulkWrite(bulkOps);
+    }
+
+    // ✅ Success response
+    res.status(200).json({ message: "Discover deleted successfully and indices adjusted" });
   } catch (errors) {
     console.error("Error in deleteDiscover:", errors);
     res.status(500).json({ message: errors.message, errors });
@@ -402,6 +426,11 @@ export const deleteBulkDiscover = async (req, res) => {
         .json({ message: "No discovers found with the provided IDs" });
     }
 
+    // Capture affected dates before deletion
+    const affectedDates = new Set(
+      discovers.map((doc) => new Date(doc.uploadAt).toISOString().split("T")[0])
+    );
+
     // 🟢 Extract image URLs for S3 deletion
     const s3ImageUrls = discovers
       .filter(
@@ -423,6 +452,26 @@ export const deleteBulkDiscover = async (req, res) => {
     if (s3ImageUrls.length > 0) {
       const deletePromises = s3ImageUrls.map((url) => deleteFromS3(url));
       await Promise.allSettled(deletePromises); // Use allSettled to continue even if some deletions fail
+    }
+
+    // 🟢 Fix Index Gaps (Re-sequence remaining items for each affected UTC date)
+    for (const dateKey of affectedDates) {
+      const start = new Date(dateKey);
+      const end = new Date(dateKey + "T23:59:59.999Z");
+
+      const remainingDocs = await Discover.find({
+        uploadAt: { $gte: start, $lte: end },
+      }).sort({ index: 1 });
+
+      if (remainingDocs.length > 0) {
+        const bulkOps = remainingDocs.map((doc, i) => ({
+          updateOne: {
+            filter: { _id: doc._id },
+            update: { $set: { index: i } },
+          },
+        }));
+        await Discover.bulkWrite(bulkOps);
+      }
     }
 
     // ✅ Success response
@@ -504,60 +553,133 @@ export const getRandomizedDiscover = async (req, res) => {
 
 export const RandomizeDiscoverByDate = async (req, res) => {
   try {
-    const { date } = req.body;
+    const { startDate, endDate } = req.body;
 
-    if (!date) {
-      return res.status(400).json({ message: "Date required" });
+    if (!startDate || !endDate) {
+      return res.status(400).json({ message: "startDate and endDate are required" });
     }
 
-    const start = new Date(date);
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(date);
-    end.setHours(23, 59, 59, 999);
-
-    const discovers = await Discover.find({
-      uploadAt: { $gte: start, $lte: end },
-    }).lean();
+    // 🔥 timezone-safe approach matching GetDiscoversByDate
+    const discovers = await Discover.aggregate([
+      {
+        $addFields: {
+          dateOnly: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$uploadAt",
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          dateOnly: {
+            $gte: startDate,
+            $lte: endDate,
+          },
+        },
+      },
+    ]);
 
     if (!discovers.length) {
       return res.status(404).json({
-        message: "No data found",
-        date,
+        message: "No data found in this date range",
       });
     }
 
-    // STRONG shuffle (Fisher-Yates + extra randomness)
-    const shuffled = [...discovers]
-      .map((item) => ({ ...item, rand: Math.random() }))
-      .sort((a, b) => a.rand - b.rand);
+    // Group by date to randomize indices properly per day
+    const groups = {};
+    discovers.forEach((doc) => {
+      const dateKey = doc.dateOnly;
+      if (!groups[dateKey]) {
+        groups[dateKey] = [];
+      }
+      groups[dateKey].push(doc);
+    });
 
-    // assign new index
-    const bulkOps = shuffled.map((doc, i) => ({
-      updateOne: {
-        filter: { _id: doc._id },
-        update: { $set: { index: i } },
-      },
-    }));
+    let bulkOps = [];
+
+    Object.keys(groups).forEach((dateKey) => {
+      const items = groups[dateKey];
+
+      // STRONG shuffle (Fisher-Yates + extra randomness)
+      const shuffled = [...items]
+        .map((item) => ({ ...item, rand: Math.random() }))
+        .sort((a, b) => a.rand - b.rand);
+
+      // assign new index per day
+      shuffled.forEach((doc, i) => {
+        bulkOps.push({
+          updateOne: {
+            filter: { _id: doc._id },
+            update: { $set: { index: i } },
+          },
+        });
+      });
+    });
 
     await Discover.bulkWrite(bulkOps);
 
-    // fetch updated data
-    const updated = await Discover.find({
-      uploadAt: { $gte: start, $lte: end },
-    })
-      .sort({ index: 1 })
-      .lean();
+    return res.status(200).json({
+      message: "Randomized successfully across the date range",
+      count: discovers.length,
+    });
+  } catch (error) {
+    console.error(error);
+    return res.status(500).json({ message: error.message });
+  }
+};
 
-    console.log(
-      "NEW INDEXES:",
-      updated.map((d) => d.index),
-    );
+export const GetDiscoversByDate = async (req, res) => {
+  try {
+    const { startDate, endDate } = req.query; // ?startDate=2026-03-25&endDate=2026-03-28
+
+    if (!startDate || !endDate) {
+      return res.status(400).json({
+        message: "startDate and endDate are required",
+      });
+    }
+
+    // 🔥 timezone-safe approach using aggregation
+    const discovers = await Discover.aggregate([
+      {
+        $addFields: {
+          dateOnly: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$uploadAt",
+            },
+          },
+        },
+      },
+      {
+        $match: {
+          dateOnly: {
+            $gte: startDate,
+            $lte: endDate,
+          },
+        },
+      },
+      {
+        $sort: {
+          dateOnly: -1, // latest date first
+          index: 1, // then index
+        },
+      },
+      {
+        $lookup: {
+          from: "categories", // ⚠️ apni collection ka exact name check karo
+          localField: "categories",
+          foreignField: "_id",
+          as: "categories",
+        },
+      },
+    ]);
 
     return res.status(200).json({
-      message: "Randomized successfully",
-      count: updated.length,
-      data: updated,
+      data: discovers,
+      count: discovers.length,
+      message: "Discover fetched successfully (date range)",
     });
   } catch (error) {
     console.error(error);
@@ -594,11 +716,9 @@ export const SwapDiscoverIndex = async (req, res) => {
     }
 
     // 🔥 STEP 3: validation (index range)
-    if (newIndex < 0 || newIndex >= discovers.length) {
+    if (newIndex < 0) {
       return res.status(400).json({
-        message: `Index out of range. Max allowed index is ${
-          discovers.length - 1
-        }`,
+        message: `Index out of range.`,
       });
     }
 
@@ -652,38 +772,6 @@ export const SwapDiscoverIndex = async (req, res) => {
   } catch (error) {
     console.error(error);
     return res.status(500).json({ message: error.message });
-  }
-};
-
-export const GetDiscoversByDate = async (req, res) => {
-  try {
-    const { date } = req.params;
-
-    if (!date) {
-      return res.status(400).json({ message: "Date is required" });
-    }
-
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
-
-    const discovers = await Discover.find({
-      uploadAt: { $gte: startOfDay, $lte: endOfDay },
-    })
-      .populate("categories")
-      .sort({ index: 1 })
-      .lean();
-
-    res.status(200).json({
-      data: discovers,
-      count: discovers.length,
-      message: "Discover fetched successfully",
-    });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: error.message });
   }
 };
 

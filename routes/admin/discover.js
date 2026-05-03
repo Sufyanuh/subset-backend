@@ -23,7 +23,7 @@ discoverRouter.route("/video").post(AddDiscoverVideo);
 discoverRouter.route("/audio").post(AddDiscoverAudio);
 discoverRouter.get("/randomized", getRandomizedDiscover);
 discoverRouter.post("/randomize-date", RandomizeDiscoverByDate);
-discoverRouter.get("/date/:date", GetDiscoversByDate);
+discoverRouter.get("/date", GetDiscoversByDate);
 discoverRouter.post("/toggle-login", addRemoveDiscoverToLogin);
 
 discoverRouter.route("/swap-index").post(SwapDiscoverIndex);
