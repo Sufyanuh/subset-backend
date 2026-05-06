@@ -365,7 +365,7 @@ export const deleteDiscover = async (req, res) => {
 
     // 🟢 Delete related file from S3 (if it exists)
     if (
-      discover.image && 
+      discover.image &&
       discover.image.includes("https://subsetdevv1.s3.us-east-1.amazonaws.com")
     ) {
       await deleteFromS3(discover.image);
@@ -390,7 +390,9 @@ export const deleteDiscover = async (req, res) => {
     }
 
     // ✅ Success response
-    res.status(200).json({ message: "Discover deleted successfully and indices adjusted" });
+    res
+      .status(200)
+      .json({ message: "Discover deleted successfully and indices adjusted" });
   } catch (errors) {
     console.error("Error in deleteDiscover:", errors);
     res.status(500).json({ message: errors.message, errors });
@@ -428,7 +430,9 @@ export const deleteBulkDiscover = async (req, res) => {
 
     // Capture affected dates before deletion
     const affectedDates = new Set(
-      discovers.map((doc) => new Date(doc.uploadAt).toISOString().split("T")[0])
+      discovers.map(
+        (doc) => new Date(doc.uploadAt).toISOString().split("T")[0],
+      ),
     );
 
     // 🟢 Extract image URLs for S3 deletion
@@ -556,10 +560,21 @@ export const RandomizeDiscoverByDate = async (req, res) => {
     const { startDate, endDate } = req.body;
 
     if (!startDate || !endDate) {
-      return res.status(400).json({ message: "startDate and endDate are required" });
+      return res
+        .status(400)
+        .json({ message: "startDate and endDate are required" });
     }
 
-    // 🔥 timezone-safe approach matching GetDiscoversByDate
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    if (end < start) {
+      return res.status(400).json({
+        message: "endDate cannot be earlier than startDate",
+      });
+    }
+
+    // 🔥 Fetch only required fields (performance boost)
     const discovers = await Discover.aggregate([
       {
         $addFields: {
@@ -579,6 +594,13 @@ export const RandomizeDiscoverByDate = async (req, res) => {
           },
         },
       },
+      {
+        $project: {
+          _id: 1,
+          title: 1,
+          dateOnly: 1,
+        },
+      },
     ]);
 
     if (!discovers.length) {
@@ -587,28 +609,93 @@ export const RandomizeDiscoverByDate = async (req, res) => {
       });
     }
 
-    // Group by date to randomize indices properly per day
+    // 👉 Group by date
     const groups = {};
-    discovers.forEach((doc) => {
-      const dateKey = doc.dateOnly;
-      if (!groups[dateKey]) {
-        groups[dateKey] = [];
-      }
-      groups[dateKey].push(doc);
-    });
+    for (const doc of discovers) {
+      if (!groups[doc.dateOnly]) groups[doc.dateOnly] = [];
+      groups[doc.dateOnly].push(doc);
+    }
 
     let bulkOps = [];
 
     Object.keys(groups).forEach((dateKey) => {
       const items = groups[dateKey];
 
-      // STRONG shuffle (Fisher-Yates + extra randomness)
-      const shuffled = [...items]
-        .map((item) => ({ ...item, rand: Math.random() }))
-        .sort((a, b) => a.rand - b.rand);
+      // 👉 Group by title
+      const titleGroups = {};
+      items.forEach((item) => {
+        const key = item.title.join(",");
+        if (!titleGroups[key]) titleGroups[key] = [];
+        titleGroups[key].push(item);
+      });
 
-      // assign new index per day
-      shuffled.forEach((doc, i) => {
+      const keys = Object.keys(titleGroups);
+
+      // ✅ CASE 1: Only one title → simple shuffle
+      if (keys.length === 1) {
+        const shuffled = titleGroups[keys[0]]
+          .map((i) => ({ ...i, rand: Math.random() }))
+          .sort((a, b) => a.rand - b.rand);
+
+        shuffled.forEach((doc, i) => {
+          bulkOps.push({
+            updateOne: {
+              filter: { _id: doc._id },
+              update: { $set: { index: i } },
+            },
+          });
+        });
+
+        return;
+      }
+
+      // 👉 Shuffle each title group
+      keys.forEach((key) => {
+        titleGroups[key] = titleGroups[key]
+          .map((i) => ({ ...i, rand: Math.random() }))
+          .sort((a, b) => a.rand - b.rand);
+      });
+
+      // 👉 Balanced distribution (no clustering)
+      let queue = keys
+        .map((key) => ({
+          key,
+          items: titleGroups[key],
+        }))
+        .sort((a, b) => b.items.length - a.items.length);
+
+      const merged = [];
+      let lastTitle = null;
+
+      while (queue.length > 0) {
+        let nextQueue = [];
+
+        for (let i = 0; i < queue.length; i++) {
+          const group = queue[i];
+
+          if (group.items.length === 0) continue;
+
+          // avoid same title consecutively
+          if (group.key === lastTitle && queue.length > 1) {
+            nextQueue.push(group);
+            continue;
+          }
+
+          const item = group.items.shift();
+          merged.push(item);
+          lastTitle = group.key;
+
+          if (group.items.length > 0) {
+            nextQueue.push(group);
+          }
+        }
+
+        // reshuffle priority (largest first)
+        queue = nextQueue.sort((a, b) => b.items.length - a.items.length);
+      }
+
+      // 👉 Assign index
+      merged.forEach((doc, i) => {
         bulkOps.push({
           updateOne: {
             filter: { _id: doc._id },
