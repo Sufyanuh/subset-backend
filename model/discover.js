@@ -47,6 +47,14 @@ const discoverSchema = Schema(
       ref: "categories",
       type: [Schema.Types.ObjectId],
     },
+    forShop: {
+      type: Boolean,
+      default: false,
+    },
+    shopUrl: {
+      type: String,
+      required: false,
+    },
   },
   { timestamps: true },
 );

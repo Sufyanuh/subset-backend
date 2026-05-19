@@ -1,9 +1,8 @@
+import { S3Client } from "@aws-sdk/client-s3";
+import dotenv from "dotenv";
 import { Discover } from "../../model/discover.js";
 import { DiscoverforLogin } from "../../model/discoverforLogin.js";
-import { S3Client, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import dotenv from "dotenv";
 import { deleteFromS3 } from "../../services/deleteFromS3.js";
-import { getDiscoversByDateSafe } from "../../services/getDiscoversByDateSafe.js";
 
 dotenv.config();
 
@@ -41,7 +40,19 @@ export const AddDiscover = async (req, res) => {
     // 🔥 STEP 2: new items prepare karo
     const newDocs = image.map((item, i) => {
       if (!item.url || !item.tag || !item.categories || !item.title) {
-        throw new Error(`Item ${i + 1} missing required fields`);
+        // also tell which item is missing required fields in error
+        if (!item.url) {
+          throw new Error(`Item ${i + 1} missing url`);
+        }
+        if (!item.tag) {
+          throw new Error(`Item ${i + 1} missing tag`);
+        }
+        if (!item.categories) {
+          throw new Error(`Item ${i + 1} missing categories`);
+        }
+        if (!item.title) {
+          throw new Error(`Item ${i + 1} missing title`);
+        }
       }
 
       return {
@@ -54,6 +65,8 @@ export const AddDiscover = async (req, res) => {
         thumbnail: item.thumbnail || "",
         uploadAt,
         index: i, // 👈 always start from 0
+        forShop: item.forShop || false,
+        shopUrl: item.shopUrl || "",
       };
     });
 
@@ -110,6 +123,8 @@ export const AddDiscoverVideo = async (req, res) => {
         sourceType: sourceType || "",
         uploadAt,
         index: i, // 👈 always start from 0
+        forShop: vid.forShop || false,
+        shopUrl: vid.shopUrl || "",
       };
     });
 
@@ -166,6 +181,8 @@ export const AddDiscoverAudio = async (req, res) => {
         sourceType: sourceType || "",
         uploadAt,
         index: i, // 👈 reset per batch
+        forShop: audio.forShop || false,
+        shopUrl: audio.shopUrl || "",
       };
     });
 
@@ -228,6 +245,8 @@ export const AddDiscoverManual = async (req, res) => {
         categories,
         uploadAt,
         index: i, // 👈 reset per batch
+        forShop: img.forShop || false,
+        shopUrl: img.shopUrl || "",
       };
     });
 
