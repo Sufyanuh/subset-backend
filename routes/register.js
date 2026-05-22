@@ -4,6 +4,7 @@ import {
   GetDiscover,
   GetDiscoverById,
   GetDiscoverToLogin,
+  GetDiscoverToScreenSaver,
 } from "../controller/admin/discover.js";
 import { extractData } from "../controller/admin/extractData.js";
 import {
@@ -58,6 +59,7 @@ export function registerRoutes(app) {
   app.post("/api/contact-us", ContactUs);
   app.get("/api/discover", GetDiscover);
   app.get("/api/discoverLogin", GetDiscoverToLogin);
+  app.get("/api/discoverScreenSaver", GetDiscoverToScreenSaver);
   app.get("/api/discover/:id", GetDiscoverById);
   app.get("/api/searchDiscover", filterDiscoveries);
   app.get("/api/categories", GetCategories);

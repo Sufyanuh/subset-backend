@@ -3,6 +3,7 @@ import dotenv from "dotenv";
 import { Discover } from "../../model/discover.js";
 import { DiscoverforLogin } from "../../model/discoverforLogin.js";
 import { deleteFromS3 } from "../../services/deleteFromS3.js";
+import { DiscoverforScreenSaver } from "../../model/discoverForScreenSaver.js";
 
 dotenv.config();
 
@@ -264,7 +265,7 @@ export const AddDiscoverManual = async (req, res) => {
 
 export const GetDiscover = async (req, res) => {
   try {
-    const [discover, discoverForLoginDocs] = await Promise.all([
+    const [discover, discoverForLoginDocs, discoverForScreenSaverDocs] = await Promise.all([
       Discover.aggregate([
         {
           $addFields: {
@@ -296,15 +297,20 @@ export const GetDiscover = async (req, res) => {
       ]),
 
       DiscoverforLogin.find({}, "discoverId").lean(),
+      DiscoverforScreenSaver.find({}, "discoverId").lean(),
     ]);
 
     const discoverIdsInLogin = new Set(
       (discoverForLoginDocs || []).map((doc) => String(doc.discoverId)),
     );
+    const discoverIdsInScreenSaver = new Set(
+      (discoverForScreenSaverDocs || []).map((doc) => String(doc.discoverId)),
+    );
 
     const dataWithLoginFlag = (discover || []).map((doc) => ({
       ...doc,
       isAddedToLogin: discoverIdsInLogin.has(String(doc._id)),
+      isAddedToScreenSaver: discoverIdsInScreenSaver.has(String(doc._id)),
     }));
 
     res.status(200).json({
@@ -905,6 +911,47 @@ export const addRemoveDiscoverToLogin = async (req, res) => {
   }
 };
 
+export const addRemoveDiscoverToScreenSaver = async (req, res) => {
+  try {
+    const { discoverId } = req.body;
+    if (!discoverId) {
+      return res.status(400).json({ message: "discoverId is required" });
+    }
+
+    const existing = await DiscoverforScreenSaver.findOne({ discoverId });
+    if (!existing) {
+      await DiscoverforScreenSaver.create({ discoverId });
+      return res
+        .status(200)
+        .json({ message: "Discover added to Login page", added: true });
+    }
+
+    await DiscoverforScreenSaver.deleteOne({ _id: existing._id });
+    return res
+      .status(200)
+      .json({ message: "Discover removed from Login page", added: false });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export const GetDiscoverToScreenSaver = async (req, res) => {
+  try {
+    // Get random 50 documents where type is "image"
+    const discover = await Discover.aggregate([
+      { $match: { type: "image", image: { $not: /\.gif$/i } } },
+      { $sample: { size: 25 } }
+    ]);
+
+    return res.status(200).json({ 
+      data: discover, 
+      count: discover.length,
+      totalImages: await Discover.countDocuments({ type: "image" })
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
 export const GetDiscoverToLogin = async (req, res) => {
   try {
     const discover = await DiscoverforLogin.find({}).populate("discoverId");

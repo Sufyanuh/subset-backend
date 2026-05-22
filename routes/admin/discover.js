@@ -14,6 +14,7 @@ import {
   RandomizeDiscoverByDate,
   GetDiscoversByDate,
   SwapDiscoverIndex,
+  addRemoveDiscoverToScreenSaver,
 } from "../../controller/admin/discover.js";
 import { uploadMultipleFiles } from "../../middleware/uploadMultipleFiles.js";
 
@@ -25,6 +26,7 @@ discoverRouter.get("/randomized", getRandomizedDiscover);
 discoverRouter.post("/randomize-date", RandomizeDiscoverByDate);
 discoverRouter.get("/date", GetDiscoversByDate);
 discoverRouter.post("/toggle-login", addRemoveDiscoverToLogin);
+discoverRouter.post("/toggle-screensaver", addRemoveDiscoverToScreenSaver);
 
 discoverRouter.route("/swap-index").post(SwapDiscoverIndex);
 discoverRouter
