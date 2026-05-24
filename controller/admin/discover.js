@@ -937,16 +937,23 @@ export const addRemoveDiscoverToScreenSaver = async (req, res) => {
 
 export const GetDiscoverToScreenSaver = async (req, res) => {
   try {
-    // Get random 50 documents where type is "image"
+    // Get random 25 documents where type is "image" and image URL does not end with .gif (including query params)
     const discover = await Discover.aggregate([
-      { $match: { type: "image", image: { $not: /\.gif$/i } } },
+      {
+        $match: {
+          type: "image",
+          image: {
+            $not: /\.gif(\?|#|$)/i
+          }
+        }
+      },
       { $sample: { size: 25 } }
     ]);
 
-    return res.status(200).json({ 
-      data: discover, 
+    return res.status(200).json({
+      data: discover,
       count: discover.length,
-      totalImages: await Discover.countDocuments({ type: "image" })
+
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
