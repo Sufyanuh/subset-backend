@@ -62,6 +62,7 @@ export const sendDailyNotificationEmails = async () => {
     console.log(
       `✅ Daily email job completed. Sent: ${emailsSent}, Errors: ${errors}`
     );
+    
 
     return {
       success: true,

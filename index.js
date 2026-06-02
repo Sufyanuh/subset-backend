@@ -164,33 +164,33 @@ try {
 }
 
 // ✅ Cron jobs with enhanced logging
-try {
-  // Discover randomizer cron
-  cron.schedule("0 3 * * *", async () => {
-    const jobStart = Date.now();
-    try {
-      logger.cron("discover-randomizer", "🔄 Starting discover indexes randomization...");
-      await randomizeDiscoverIndexes();
-      const duration = Date.now() - jobStart;
-      logger.cron("discover-randomizer", `✅ Completed in ${duration}ms`);
-    } catch (err) {
-      logger.error("❌ Discover randomizer cron failed", err);
-    }
-  });
-  logger.info("📅 Discover randomizer scheduled (daily at 3 AM)");
+// try {
+//   // Discover randomizer cron
+//   cron.schedule("0 3 * * *", async () => {
+//     const jobStart = Date.now();
+//     try {
+//       logger.cron("discover-randomizer", "🔄 Starting discover indexes randomization...");
+//       await randomizeDiscoverIndexes();
+//       const duration = Date.now() - jobStart;
+//       logger.cron("discover-randomizer", `✅ Completed in ${duration}ms`);
+//     } catch (err) {
+//       logger.error("❌ Discover randomizer cron failed", err);
+//     }
+//   });
+//   logger.info("📅 Discover randomizer scheduled (daily at 3 AM)");
 
-  // Daily email cron
-  setupDailyEmailCron();
-  logger.info("📅 Daily email cron scheduled");
+//   // Daily email cron
+//   setupDailyEmailCron();
+//   logger.info("📅 Daily email cron scheduled");
   
-  // Log cleanup cron (every Sunday at 2 AM)
-  cron.schedule("0 2 * * 0", () => {
-    logger.cron("log-cleanup", "🧹 Cleaning old log files...");
-    logger.cleanupOldLogs(30); // Keep 30 days of logs
-  });
-} catch (error) {
-  logger.error("❌ Cron job setup failed", error);
-}
+//   // Log cleanup cron (every Sunday at 2 AM)
+//   cron.schedule("0 2 * * 0", () => {
+//     logger.cron("log-cleanup", "🧹 Cleaning old log files...");
+//     logger.cleanupOldLogs(30); // Keep 30 days of logs
+//   });
+// } catch (error) {
+//   logger.error("❌ Cron job setup failed", error);
+// }
 
 // ✅ Manual trigger for daily emails
 app.get("/api/admin/send-daily-emails", async (req, res) => {

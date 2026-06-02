@@ -341,7 +341,7 @@ export const GetDiscoverById = async (req, res) => {
 
 export const updateDiscover = async (req, res) => {
   const reqId = req.params.id;
-  const { title, image, tags, categories } = req.body;
+  const { title, image, tags, categories, forShop, shopUrl } = req.body;
 
   try {
     const updatedDiscover = await Discover.findByIdAndUpdate(
@@ -351,6 +351,8 @@ export const updateDiscover = async (req, res) => {
         ...(image && { image }),
         ...(tags && { tags }),
         ...(categories && { categories }),
+        ...(forShop !== undefined && { forShop }),
+        ...(shopUrl !== undefined && { shopUrl }),
       },
       { new: true }, // returns the updated document
     );
