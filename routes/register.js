@@ -173,4 +173,3 @@ import S3routes from "./s3Routes.js";
 import FileUploadroutes from "./uploadRoutes.js";
 import { savedBoardsRoutes } from "./user/savedboards.js";
 import { subscribeRoute } from "./user/subscribe.js";
-
