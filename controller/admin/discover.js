@@ -115,8 +115,8 @@ export const AddDiscoverVideo = async (req, res) => {
 
       return {
         title: vid.title,
-        image: vid.thumbnail || vid.url, // thumbnail fallback
-        videoUrl: vid.url,
+        image: vid.url,
+        thumbnail: vid.thumbnail || "",
         type: "video",
         tags: vid.tags,
         categories: vid.categories,
