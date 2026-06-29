@@ -409,6 +409,7 @@ export const getPostById = async (req, res) => {
     const post = await Post.findById(postId)
       .populate("author")
       .populate("likes.user")
+      .populate("channel")  
       .lean();
 
     if (!post) {
