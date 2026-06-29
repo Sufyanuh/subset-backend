@@ -292,7 +292,7 @@ export const emailVerificationTemplate = (name, link) => {
   return `
   <div style="font-family: Arial, sans-serif; padding: 20px; color: #333;">
     <h2>Welcome, ${name} 👋</h2>
-    <p>Thanks for registering on <strong>The Subset</strong>.</p>
+    <p>Thanks for being here!.</p>
 
     <p>Please verify your email by clicking the button below:</p>
 
@@ -315,7 +315,7 @@ export const emailVerificationTemplate = (name, link) => {
       <span style="color:#0066cc;">${link}</span>
     </p>
 
-    <p style="margin-top: 30px;">Regards,<br>The Subset Team</p>
+    <p style="margin-top: 30px;">Thanks,<br>Team SUB•SET</p>
   </div>
   `;
 };
