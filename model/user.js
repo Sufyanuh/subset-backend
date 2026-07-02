@@ -153,6 +153,10 @@ const userSchema = new Schema(
         ref: "discover",
       },
     ],
+    pinnedConversations: {
+      type: [String],
+      default: [],
+    },
     notificationSettings: {
       emailNotifications: {
         type: Boolean,

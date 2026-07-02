@@ -92,7 +92,7 @@ export const getInbox = async (req, res) => {
       String(c.userA) === selfUserId ? String(c.userB) : String(c.userA)
     );
 
-    const [lastMessages, users] = await Promise.all([
+    const [lastMessages, users, userDoc] = await Promise.all([
       Message.find({ _id: { $in: lastMessageIds } })
         .populate("sender", "username fullName avatar")
         .populate("recipient", "username fullName avatar")
@@ -100,10 +100,12 @@ export const getInbox = async (req, res) => {
       User.find({ _id: { $in: counterpartIds } })
         .select("username fullName avatar")
         .lean(),
+      User.findById(selfUserId).select("pinnedConversations").lean()
     ]);
 
     const idToMessage = new Map(lastMessages.map((m) => [String(m._id), m]));
     const idToUser = new Map(users.map((u) => [String(u._id), u]));
+    const pinned = userDoc?.pinnedConversations || [];
 
     const items = conversations.map((c) => {
       const unreadCount =
@@ -117,6 +119,7 @@ export const getInbox = async (req, res) => {
           ? idToMessage.get(String(c.lastMessageId))
           : null,
         unreadCount: unreadCount || 0,
+        isPinned: pinned.includes(c.conversationId),
       };
     });
 
@@ -153,11 +156,13 @@ export const getNeverChattedUsers = async (req, res) => {
     const regex = search ? new RegExp(search, "i") : null;
     const query = {
       _id: { $ne: selfUserId, $nin: Array.from(chattedWith) },
+      isActive: true,
       ...(regex ? { $or: [{ username: regex }, { fullName: regex }] } : {}),
     };
 
     const users = await User.find(query)
       .select("username fullName avatar")
+      .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit)
       .lean();
@@ -165,5 +170,72 @@ export const getNeverChattedUsers = async (req, res) => {
     res.status(200).json({ data: users });
   } catch (err) {
     res.status(500).json({ message: "Failed to load users" });
+  }
+};
+
+export const deleteConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const selfUserId = String(req.user._id);
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation) {
+      return res.status(404).json({ message: "Conversation not found" });
+    }
+
+    if (String(conversation.userA) !== selfUserId && String(conversation.userB) !== selfUserId) {
+      return res.status(403).json({ message: "Unauthorized to delete this conversation" });
+    }
+
+    await Promise.all([
+      Conversation.deleteOne({ conversationId }),
+      Message.deleteMany({ conversationId })
+    ]);
+
+    await User.updateMany(
+      { $or: [{ _id: conversation.userA }, { _id: conversation.userB }] },
+      { $pull: { pinnedConversations: conversationId } }
+    );
+
+    res.status(200).json({ success: true, message: "Conversation deleted successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+};
+
+export const togglePinConversation = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const selfUserId = String(req.user._id);
+
+    const conversation = await Conversation.findOne({ conversationId });
+    if (!conversation) {
+      return res.status(404).json({ message: "Conversation not found" });
+    }
+
+    if (String(conversation.userA) !== selfUserId && String(conversation.userB) !== selfUserId) {
+      return res.status(403).json({ message: "Unauthorized" });
+    }
+
+    const user = await User.findById(selfUserId);
+    const isPinned = user.pinnedConversations?.includes(conversationId);
+
+    if (isPinned) {
+      await User.findByIdAndUpdate(selfUserId, {
+        $pull: { pinnedConversations: conversationId }
+      });
+    } else {
+      await User.findByIdAndUpdate(selfUserId, {
+        $addToSet: { pinnedConversations: conversationId }
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      isPinned: !isPinned,
+      message: isPinned ? "Conversation unpinned" : "Conversation pinned"
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
   }
 };

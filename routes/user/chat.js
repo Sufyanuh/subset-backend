@@ -4,6 +4,8 @@ import {
     getInbox,
     getNeverChattedUsers,
     markRead,
+    deleteConversation,
+    togglePinConversation,
 } from "../../controller/user/Chat.js";
 import { checkAuthToken } from "../../middleware/checkToken.js";
 
@@ -20,6 +22,12 @@ router.get("/inbox", checkAuthToken, getInbox);
 
 // Users never chatted with current user
 router.get("/never-chatted", checkAuthToken, getNeverChattedUsers);
+
+// Delete conversation
+router.delete("/conversation/:conversationId", checkAuthToken, deleteConversation);
+
+// Pin/Unpin conversation
+router.post("/conversation/:conversationId/pin", checkAuthToken, togglePinConversation);
 
 export default router;
 

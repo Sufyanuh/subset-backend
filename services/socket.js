@@ -118,7 +118,7 @@ export function initSockets(httpServer) {
 
         // Inbox updates
         const unreadForRecipient =
-          recipientIdStr === convUpdate.userA
+          recipientIdStr === String(convUpdate.userA)
             ? convUpdate.unreadForA
             : convUpdate.unreadForB;
 
@@ -142,7 +142,7 @@ export function initSockets(httpServer) {
         });
 
         const unreadForSender =
-          selfId === convUpdate.userA
+          selfId === String(convUpdate.userA)
             ? convUpdate.unreadForA
             : convUpdate.unreadForB;
 
