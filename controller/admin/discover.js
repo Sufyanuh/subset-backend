@@ -265,39 +265,51 @@ export const AddDiscoverManual = async (req, res) => {
 
 export const GetDiscover = async (req, res) => {
   try {
-    const [discover, discoverForLoginDocs, discoverForScreenSaverDocs] = await Promise.all([
-      Discover.aggregate([
-        {
-          $addFields: {
-            dateOnly: {
-              $dateToString: {
-                format: "%Y-%m-%d",
-                date: "$uploadAt",
-              },
+    const page = req.query.page ? parseInt(req.query.page) : null;
+    const limit = req.query.limit ? parseInt(req.query.limit) : 200;
+
+    const pipeline = [
+      {
+        $addFields: {
+          dateOnly: {
+            $dateToString: {
+              format: "%Y-%m-%d",
+              date: "$uploadAt",
             },
           },
         },
+      },
 
-        // 🔥 join categories collection
-        {
-          $lookup: {
-            from: "categories", // collection name (IMPORTANT)
-            localField: "categories",
-            foreignField: "_id",
-            as: "categories",
-          },
+      // 🔥 join categories collection
+      {
+        $lookup: {
+          from: "categories", // collection name (IMPORTANT)
+          localField: "categories",
+          foreignField: "_id",
+          as: "categories",
         },
+      },
 
-        {
-          $sort: {
-            dateOnly: -1,
-            index: 1,
-          },
+      {
+        $sort: {
+          dateOnly: -1,
+          index: 1,
         },
-      ]),
+      },
+    ];
 
+    if (page !== null && !isNaN(page)) {
+      pipeline.push(
+        { $skip: (page - 1) * limit },
+        { $limit: limit }
+      );
+    }
+
+    const [discover, discoverForLoginDocs, discoverForScreenSaverDocs, totalCount] = await Promise.all([
+      Discover.aggregate(pipeline),
       DiscoverforLogin.find({}, "discoverId").lean(),
       DiscoverforScreenSaver.find({}, "discoverId").lean(),
+      Discover.countDocuments(),
     ]);
 
     const discoverIdsInLogin = new Set(
@@ -313,8 +325,12 @@ export const GetDiscover = async (req, res) => {
       isAddedToScreenSaver: discoverIdsInScreenSaver.has(String(doc._id)),
     }));
 
+    const hasNextPage = (page !== null && !isNaN(page)) ? (discover.length === limit) : false;
+
     res.status(200).json({
       data: dataWithLoginFlag,
+      hasNextPage,
+      totalCount,
       message: "Discover fetched successfully",
     });
   } catch (errors) {

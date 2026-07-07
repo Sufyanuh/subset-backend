@@ -1,11 +1,7 @@
 import { loginAdmin } from "../controller/admin/auth.js";
 import { GetCategories } from "../controller/admin/categories.js";
-import {
-  GetDiscover,
-  GetDiscoverById,
-  GetDiscoverToLogin,
-  GetDiscoverToScreenSaver,
-} from "../controller/admin/discover.js";
+import { GetDiscover, GetDiscoverById, GetDiscoverToLogin, GetDiscoverToScreenSaver } from "../controller/admin/discover.js";
+import { GetSpotlights } from "../controller/admin/spotlight.js";
 import { extractData } from "../controller/admin/extractData.js";
 import {
   forgotPassword,
@@ -38,6 +34,7 @@ import { discoverRouter } from "./admin/discover.js";
 import adminMentorRoutes from "./admin/mentor.js";
 import { subChannelRoutes } from "./admin/subChannels.js";
 import { userRouter } from "./admin/user.js";
+import { spotlightRouter } from "./admin/spotlight.js";
 import { userBoardsRouter } from "./user/boards.js";
 import booknowRoutes from "./user/booknow.js";
 import { channelRoutes } from "./user/channel.js";
@@ -63,6 +60,7 @@ export function registerRoutes(app) {
   app.get("/api/discover/:id", GetDiscoverById);
   app.get("/api/searchDiscover", filterDiscoveries);
   app.get("/api/categories", GetCategories);
+  app.get("/api/spotlight", GetSpotlights);
   app.post("/api/user/google-login", loginWithGoogle);
 
   app.post("/api/user/login", loginUser);
@@ -110,6 +108,7 @@ export function registerRoutes(app) {
   app.use("/api/admin/user", checkAuthToken, userRouter);
   app.use("/api/admin/discover", checkAuthToken, discoverRouter);
   app.use("/api/admin/category", checkAuthToken, categoriesRouter);
+  app.use("/api/admin/spotlight", checkAuthToken, spotlightRouter);
   app.use("/api/admin/channel", checkAuthToken, channelRouter);
   app.use("/api/admin/subchannel", checkAuthToken, subChannelRoutes);
   app.use("/api/admin/mentors", adminMentorRoutes);
