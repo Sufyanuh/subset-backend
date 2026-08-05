@@ -293,7 +293,6 @@ export const getPostsByChannelId = async (req, res) => {
   try {
     const { channelId } = req.params;
     const { isPaid, isAdmin, _id: currentUserId } = req.user;
-
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 10;
     const skip = (page - 1) * limit;
@@ -306,8 +305,8 @@ export const getPostsByChannelId = async (req, res) => {
         message: "Channel not found",
       });
     }
-
-    if (channel.isPaid && !isPaid) {
+    
+    if (channel.isPrivate && !isPaid) {
       return res.status(403).json({
         success: false,
         message: "Access denied. This is a paid channel.",
@@ -409,7 +408,7 @@ export const getPostById = async (req, res) => {
     const post = await Post.findById(postId)
       .populate("author")
       .populate("likes.user")
-      .populate("channel")  
+      .populate("channel")
       .lean();
 
     if (!post) {
