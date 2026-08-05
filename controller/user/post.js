@@ -305,11 +305,11 @@ export const getPostsByChannelId = async (req, res) => {
         message: "Channel not found",
       });
     }
-    
+
     if (channel.isPrivate && !isPaid) {
       return res.status(403).json({
         success: false,
-        message: "Access denied. This is a paid channel.",
+        message: "Please upgrade to access this channel!",
       });
     }
 
