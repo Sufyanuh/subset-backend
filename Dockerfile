@@ -12,13 +12,13 @@ ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 # Install dependencies
-RUN npm install --legacy-peer-deps
+RUN npm install
 
 # Copy the rest of the app
 COPY . .
 
-# Expose app port
-EXPOSE 8118
+# Expose app port (matching PORT=8116 in .env)
+EXPOSE 8116
 
 # Default command
 CMD ["npm", "run", "dev"]
