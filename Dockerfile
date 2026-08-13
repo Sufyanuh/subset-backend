@@ -7,6 +7,10 @@ WORKDIR /app
 # Copy package files first (for better caching)
 COPY package*.json ./
 
+# Prevent Puppeteer from downloading heavy Chromium binaries during build
+ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+
 # Install dependencies
 RUN npm install --legacy-peer-deps
 
