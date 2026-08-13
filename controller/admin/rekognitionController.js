@@ -5,6 +5,7 @@ import fs from "fs";
 import os from "os";
 import ffmpeg from "fluent-ffmpeg";
 import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import ffmpegStatic from "ffmpeg-static";
 import ffprobePath from "ffprobe-static";
 import NodeCache from "node-cache";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
@@ -23,7 +24,10 @@ const analysisCache = new NodeCache({ stdTTL: 604800, checkperiod: 3600 }); // 7
 
 if (ffmpegInstaller && ffmpegInstaller.path) {
   ffmpeg.setFfmpegPath(ffmpegInstaller.path);
+} else if (ffmpegStatic) {
+  ffmpeg.setFfmpegPath(typeof ffmpegStatic === "string" ? ffmpegStatic : ffmpegStatic.path);
 }
+
 if (ffprobePath) {
   if (typeof ffprobePath === "string") {
     ffmpeg.setFfprobePath(ffprobePath);
