@@ -68,13 +68,15 @@ export const extractData = async (req, res) => {
       }
     }
 
-    // 🟡 2. Handle Webpages (Server-side + Client-side via Puppeteer)
     const browser = await puppeteer.launch({
       headless: "new",
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
       args: [
         "--no-sandbox",
         "--disable-setuid-sandbox",
-        "--disable-blink-features=AutomationControlled"
+        "--disable-dev-shm-usage",
+        "--disable-gpu",
+        "--disable-blink-features=AutomationControlled",
       ],
     });
     const page = await browser.newPage();
