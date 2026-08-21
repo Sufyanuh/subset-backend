@@ -21,7 +21,7 @@ export const sumbitworkMail = async (req, res) => {
         border: 1px solid #eee;
       ">
         <div style="text-align:center;margin-bottom:20px;">
-          <img src="https://newuser.thesubset.org/assets/images/logo.svg" alt="Logo" style="width:120px;" />
+          <img src="https://thesubset.org/assets/images/logo.svg" alt="Logo" style="width:120px;" />
         </div>
 
         <h2 style="text-align:center;color:#333;">🎨 New Work Submission</h2>
@@ -43,16 +43,16 @@ export const sumbitworkMail = async (req, res) => {
         </div>
 
         <div style="text-align:center;margin-top:25px;">
-          <a href="https://newuser.thesubset.org/" style="
+          <a href="https://thesubset.org/" style="
             display:inline-block;
             padding:12px 22px;
-            background:#0077ff;
+            background:#000000;
             color:white;
             text-decoration:none;
             border-radius:6px;
             font-weight:bold;
           ">
-            Visit Website
+            VISIT SUB•SET
           </a>
         </div>
 
@@ -74,7 +74,7 @@ export const sumbitworkMail = async (req, res) => {
         border: 1px solid #eee;
       ">
         <div style="text-align: center;">
-          <img src="https://newuser.thesubset.org/assets/images/logo.svg" alt="Logo" style="width: 120px; margin-bottom: 20px;" />
+          <img src="https://thesubset.org/assets/images/logo.svg" alt="Logo" style="width: 120px; margin-bottom: 20px;" />
         </div>
 
         <h2 style="color: #333; text-align:center;">Thank you, ${name}! 🎉</h2>
@@ -94,17 +94,17 @@ export const sumbitworkMail = async (req, res) => {
         </div>
 
         <div style="margin: 25px 0; text-align:center;">
-          <a href="https://newuser.thesubset.org/"
+          <a href="https://thesubset.org/"
             style="
               display: inline-block;
               padding: 12px 22px;
-              background: #0077ff;
+              background: #000000;
               color: white;
               text-decoration: none;
               border-radius: 6px;
               font-weight: bold;
             ">
-            Visit The Subset
+            VISIT SUB•SET
           </a>
         </div>
 
@@ -119,12 +119,20 @@ export const sumbitworkMail = async (req, res) => {
     `;
 
     // Send emails
-    await sendEmail("contact@thesubset.org", "🎨 New Work Submission", adminEmailContent);
-    await sendEmail(email, "✅ We've received your project submission", userEmailContent);
+    await sendEmail(
+      "contact@thesubset.org",
+      "🎨 New Work Submission",
+      adminEmailContent,
+    );
+    await sendEmail(
+      email,
+      "✅ We've received your project submission",
+      userEmailContent,
+    );
 
     return res.json({
       success: true,
-      message: "Work submitted successfully. Confirmation email sent to user.",
+      message: "Received! A confirmation has been sent to you.",
     });
   } catch (error) {
     console.error("Mail Error:", error);
