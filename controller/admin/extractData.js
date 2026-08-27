@@ -33,30 +33,36 @@ export const extractData = async (req, res) => {
     // 🟢 1. Handle Direct Image & Video URLs via Axios (Fast Path)
     if (isDirectImage || isDirectVideo) {
       const type = isDirectImage ? "image" : "video";
+      let cleanUrl = url;
       try {
-        const response = await axios.head(url);
+        const parsed = new URL(url);
+        parsed.pathname = parsed.pathname.replace(/\/+/g, "/");
+        cleanUrl = parsed.href;
+      } catch {}
+      try {
+        const response = await axios.head(cleanUrl);
         const contentType = response.headers["content-type"];
         if (contentType?.startsWith(`${type}/`)) {
-          const filename = url.split("/").pop().split("?")[0];
+          const filename = cleanUrl.split("/").pop().split("?")[0];
           return res.status(200).json({
             title: filename,
-            images: [{ url, type }],
+            images: [{ url: cleanUrl, type }],
             isDirect: true,
           });
         }
       } catch {
         // Fallback GET request if HEAD fails
         try {
-          const response = await axios.get(url, {
+          const response = await axios.get(cleanUrl, {
             responseType: "arraybuffer",
             timeout: 5000,
           });
           const contentType = response.headers["content-type"];
           if (contentType?.startsWith(`${type}/`)) {
-            const filename = url.split("/").pop().split("?")[0];
+            const filename = cleanUrl.split("/").pop().split("?")[0];
             return res.status(200).json({
               title: filename,
-              images: [{ url, type }],
+              images: [{ url: cleanUrl, type }],
               isDirect: true,
             });
           }
@@ -154,7 +160,9 @@ export const extractData = async (req, res) => {
         if (!relativeOrAbsolute) return;
         try {
           const absoluteUrl = new URL(relativeOrAbsolute, baseUrl).href;
-          items.push({ url: absoluteUrl, type });
+          const parsed = new URL(absoluteUrl);
+          parsed.pathname = parsed.pathname.replace(/\/+/g, "/");
+          items.push({ url: parsed.href, type });
         } catch {}
       };
 
