@@ -1,6 +1,11 @@
 import { loginAdmin } from "../controller/admin/auth.js";
 import { GetCategories } from "../controller/admin/categories.js";
-import { GetDiscover, GetDiscoverById, GetDiscoverToLogin, GetDiscoverToScreenSaver } from "../controller/admin/discover.js";
+import {
+  GetDiscover,
+  GetDiscoverById,
+  GetDiscoverToLogin,
+  GetDiscoverToScreenSaver,
+} from "../controller/admin/discover.js";
 import { GetSpotlights } from "../controller/admin/spotlight.js";
 import { extractData } from "../controller/admin/extractData.js";
 import {
@@ -35,6 +40,15 @@ import adminMentorRoutes from "./admin/mentor.js";
 import { subChannelRoutes } from "./admin/subChannels.js";
 import { userRouter } from "./admin/user.js";
 import { spotlightRouter } from "./admin/spotlight.js";
+import { jobCategoryRouter } from "./admin/jobCategory.js";
+import { jobRouter } from "./admin/job.js";
+import { GetJobCategories } from "../controller/admin/jobCategory.js";
+import {
+  GetJobs,
+  GetJobById,
+  getSpotlightJobs,
+} from "../controller/admin/job.js";
+import { submitJobPost } from "../controller/user/jobs.js";
 import { userBoardsRouter } from "./user/boards.js";
 import booknowRoutes from "./user/booknow.js";
 import { channelRoutes } from "./user/channel.js";
@@ -61,8 +75,12 @@ export function registerRoutes(app) {
   app.get("/api/searchDiscover", filterDiscoveries);
   app.get("/api/categories", GetCategories);
   app.get("/api/spotlight", GetSpotlights);
+  app.get("/api/job-categories", GetJobCategories);
+  app.get("/api/jobs/spotlight", getSpotlightJobs);
+  app.get("/api/jobs", GetJobs);
+  app.post("/api/jobs/submit", submitJobPost);
+  app.get("/api/jobs/:id", GetJobById);
   app.post("/api/user/google-login", loginWithGoogle);
-
   app.post("/api/user/login", loginUser);
   app.post("/api/user/signup", registerUser);
   app.post("/api/user/verifyEmail", verifyEmail);
@@ -109,6 +127,8 @@ export function registerRoutes(app) {
   app.use("/api/admin/discover", checkAuthToken, discoverRouter);
   app.use("/api/admin/category", checkAuthToken, categoriesRouter);
   app.use("/api/admin/spotlight", checkAuthToken, spotlightRouter);
+  app.use("/api/admin/job-category", checkAuthToken, jobCategoryRouter);
+  app.use("/api/admin/job", checkAuthToken, jobRouter);
   app.use("/api/admin/channel", checkAuthToken, channelRouter);
   app.use("/api/admin/subchannel", checkAuthToken, subChannelRoutes);
   app.use("/api/admin/mentors", adminMentorRoutes);
@@ -116,6 +136,8 @@ export function registerRoutes(app) {
   // User routes
   app.use("/api/user/board", userBoardsRouter);
   app.use("/api/user/savedBoards", checkAuthToken, savedBoardsRoutes);
+  app.use("/api/user/jobs", userJobsRouter);
+
   app.delete("/api/user/delete", checkAuthToken, deleteUser);
   app.post("/api/submit", sumbitworkMail);
   app.post("/api/request-credits", requestCreditsMail);
@@ -172,3 +194,4 @@ import S3routes from "./s3Routes.js";
 import FileUploadroutes from "./uploadRoutes.js";
 import { savedBoardsRoutes } from "./user/savedboards.js";
 import { subscribeRoute } from "./user/subscribe.js";
+import { userJobsRouter } from "./user/jobs.js";

@@ -1,5 +1,7 @@
 import { Boards } from "../../model/boards.js";
 import { User } from "../../model/user.js";
+import { Job } from "../../model/job.js";
+import { verifyToken } from "../../services/generateJwt.js";
 import mongoose from "mongoose";
 import Post from "../../model/post.js";
 import Comment from "../../model/comment.js";
@@ -20,16 +22,46 @@ export const getUserByUserName = async (req, res) => {
 
   try {
     const user = await User.findOne({ username }).populate("discover");
-    const boards = await Boards.find({ userId: user._id }).populate("discover");
     if (!user) {
       return res.status(404).json({ message: "User not found." });
     }
+
+    const boards = await Boards.find({ userId: user._id }).populate("discover");
+
+    // Check if the requesting user is the profile owner
+    let requesterId = null;
+    const authHeader = req.headers.authorization;
+    if (authHeader) {
+      const token = authHeader.split(" ")[1];
+      if (token) {
+        const decoded = await verifyToken(token, "user");
+        requesterId = decoded?._id || decoded?.id;
+      }
+    }
+
+    const isOwner =
+      requesterId && requesterId.toString() === user._id.toString();
+
+    let jobs = [];
+    if (isOwner) {
+      jobs = await Job.find({
+        $or: [
+          { _id: { $in: user.savedJobs || [] } },
+          { savedByUsers: user._id },
+        ],
+      })
+        .populate("jobCategory", "name position")
+        .populate("connections", "fullName username email avatar title")
+        .populate("savedByUsers", "fullName username email avatar title")
+        .sort({ createdAt: -1 });
+    }
+
     const updatedUser = { ...user.toObject() };
     delete updatedUser.token;
     delete updatedUser.password;
     res
       .status(200)
-      .json({ message: "User Found", data: { ...updatedUser, boards } });
+      .json({ message: "User Found", data: { ...updatedUser, boards, jobs } });
   } catch (errors) {
     console.error("Error fetching user:", errors);
     res.status(500).json({ message: errors.message, errors });
@@ -204,7 +236,7 @@ export const editProfile = async (req, res) => {
       updatedUser = await User.findByIdAndUpdate(
         userId,
         { $set: updates },
-        { new: true, runValidators: true, select: "-password" }
+        { new: true, runValidators: true, select: "-password" },
       );
 
       // Now update password separately using document instance so pre('save') hooks run
@@ -248,7 +280,7 @@ export const editProfile = async (req, res) => {
       updatedUser = await User.findByIdAndUpdate(
         userId,
         { $set: updates },
-        { new: true, runValidators: true, select: "-password" }
+        { new: true, runValidators: true, select: "-password" },
       );
 
       // Propagate denormalized profile fields if changed
@@ -321,7 +353,7 @@ export const deleteUser = async (req, res) => {
 
       // 2) Delete comments authored by the user on other posts (and their media)
       const authoredComments = await Comment.find({ author: userId }).session(
-        session
+        session,
       );
       for (const c of authoredComments) {
         if (Array.isArray(c.media) && c.media.length > 0) {
@@ -333,19 +365,19 @@ export const deleteUser = async (req, res) => {
       // 3) Remove likes and mentions added by this user across posts/comments
       await Post.updateMany(
         { "likes.user": userId },
-        { $pull: { likes: { user: userId } } }
+        { $pull: { likes: { user: userId } } },
       ).session(session);
       await Comment.updateMany(
         { "likes.user": userId },
-        { $pull: { likes: { user: userId } } }
+        { $pull: { likes: { user: userId } } },
       ).session(session);
       await Post.updateMany(
         { mentions: userId },
-        { $pull: { mentions: userId } }
+        { $pull: { mentions: userId } },
       ).session(session);
       await Comment.updateMany(
         { mentions: userId },
-        { $pull: { mentions: userId } }
+        { $pull: { mentions: userId } },
       ).session(session);
 
       // 4) Delete boards owned by the user
@@ -426,7 +458,7 @@ export const getSubscriptionDetails = async (req, res) => {
     if (user.stripeSubscriptionId) {
       try {
         const subscription = await stripe.subscriptions.retrieve(
-          user.stripeSubscriptionId
+          user.stripeSubscriptionId,
         );
         subscriptionDetails = {
           id: subscription.id,
@@ -469,3 +501,5 @@ export const getSubscriptionDetails = async (req, res) => {
     res.status(500).json({ message: error.message });
   }
 };
+
+

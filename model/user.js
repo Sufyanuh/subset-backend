@@ -153,6 +153,12 @@ const userSchema = new Schema(
         ref: "discover",
       },
     ],
+    savedJobs: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "job",
+      },
+    ],
     pinnedConversations: {
       type: [String],
       default: [],
@@ -164,7 +170,7 @@ const userSchema = new Schema(
       },
     },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Indexes for optimization
@@ -202,7 +208,7 @@ userSchema.virtual("hasActiveSubscription").get(function () {
 
   // Check if subscription is in an active state
   const hasValidStatus = ["active", "trialing", "past_due"].includes(
-    this.subscriptionStatus
+    this.subscriptionStatus,
   );
 
   // Check if current period hasn't ended
@@ -345,7 +351,7 @@ userSchema.methods.syncSubscriptionWithStripe = async function (stripe) {
       this.stripeSubscriptionId,
       {
         expand: ["latest_invoice", "default_payment_method"],
-      }
+      },
     );
 
     const updates = {
@@ -424,7 +430,7 @@ userSchema.statics.updateFromStripeWebhook = async function (subscription) {
   }
 
   await user.syncSubscriptionWithStripe(
-    require("stripe")(process.env.STRIPE_SECRET_KEY)
+    require("stripe")(process.env.STRIPE_SECRET_KEY),
   );
   return user;
 };
