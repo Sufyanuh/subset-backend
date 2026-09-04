@@ -9,7 +9,7 @@ import {
 
 export const userJobsRouter = Router();
 
-userJobsRouter.post("/submit", submitJobPost);
+userJobsRouter.post("/submit", checkAuthToken, submitJobPost);
 userJobsRouter.post("/save/:jobId", checkAuthToken, toggleSavedJobs);
 userJobsRouter.post("/connect/:jobId", checkAuthToken, toggleConnection);
 

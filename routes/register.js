@@ -78,7 +78,7 @@ export function registerRoutes(app) {
   app.get("/api/job-categories", GetJobCategories);
   app.get("/api/jobs/spotlight", getSpotlightJobs);
   app.get("/api/jobs", GetJobs);
-  app.post("/api/jobs/submit", submitJobPost);
+  app.post("/api/jobs/submit", checkAuthToken, submitJobPost);
   app.get("/api/jobs/:id", GetJobById);
   app.post("/api/user/google-login", loginWithGoogle);
   app.post("/api/user/login", loginUser);

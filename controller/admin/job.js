@@ -14,6 +14,7 @@ export const CreateJob = async (req, res) => {
       visualAssets,
       jobTitle,
       jobCategory,
+      jobCategories,
       applicationLink,
       location,
       workplaceType,
@@ -31,9 +32,18 @@ export const CreateJob = async (req, res) => {
     if (!jobTitle || !jobTitle.trim()) {
       return res.status(400).json({ message: "Job title is required." });
     }
-    if (!jobCategory) {
+
+    const finalCategories = Array.isArray(jobCategories)
+      ? jobCategories.filter(Boolean)
+      : jobCategory
+      ? [jobCategory]
+      : [];
+
+    if (!finalCategories.length && !jobCategory) {
       return res.status(400).json({ message: "Job category is required." });
     }
+
+    const primaryCategory = finalCategories[0] || jobCategory || null;
 
     const job = await Job.create({
       companyName: companyName.trim(),
@@ -44,7 +54,8 @@ export const CreateJob = async (req, res) => {
       companySize: companySize?.trim() || "",
       visualAssets: Array.isArray(visualAssets) ? visualAssets : [],
       jobTitle: jobTitle.trim(),
-      jobCategory,
+      jobCategory: primaryCategory,
+      jobCategories: finalCategories,
       applicationLink: applicationLink?.trim() || "",
       location: location?.trim() || "",
       workplaceType: workplaceType || "On-site",
@@ -57,10 +68,9 @@ export const CreateJob = async (req, res) => {
       postedBy: req.user?._id || null,
     });
 
-    const populatedJob = await Job.findById(job._id).populate(
-      "jobCategory",
-      "name position",
-    );
+    const populatedJob = await Job.findById(job._id)
+      .populate("jobCategory", "name position")
+      .populate("jobCategories", "name position");
 
     return res.status(201).json({
       message: "Job created successfully",
@@ -113,7 +123,22 @@ export const GetJobs = async (req, res) => {
     }
 
     if (category && category !== "All") {
-      filter.jobCategory = category;
+      const catArray = Array.isArray(category)
+        ? category.filter(Boolean)
+        : typeof category === "string"
+        ? category
+            .split(",")
+            .map((s) => s.trim())
+            .filter((s) => s && s !== "All")
+        : [category];
+
+      if (catArray.length > 0) {
+        filter.$or = [
+          ...(filter.$or || []),
+          { jobCategory: { $in: catArray } },
+          { jobCategories: { $in: catArray } },
+        ];
+      }
     }
 
     if (workplaceType && workplaceType !== "All") {
@@ -149,6 +174,8 @@ export const GetJobs = async (req, res) => {
 
     const jobs = await Job.find(filter)
       .populate("jobCategory", "name position")
+      .populate("jobCategories", "name position")
+      .populate("postedBy", "fullName firstName lastName username email avatar profilePicture")
       .populate("connections", "fullName username email avatar title")
       .populate("savedByUsers", "fullName username email avatar title")
       .sort(sortOption);
@@ -169,6 +196,8 @@ export const GetJobById = async (req, res) => {
   try {
     const job = await Job.findById(id)
       .populate("jobCategory", "name position")
+      .populate("jobCategories", "name position")
+      .populate("postedBy", "fullName firstName lastName username email avatar profilePicture")
       .populate("connections", "fullName username email avatar title")
       .populate("savedByUsers", "fullName username email avatar title");
     if (!job) {
@@ -219,6 +248,14 @@ export const UpdateJob = async (req, res) => {
     if (visualAssets !== undefined) updateData.visualAssets = visualAssets;
     if (jobTitle !== undefined) updateData.jobTitle = jobTitle.trim();
     if (jobCategory !== undefined) updateData.jobCategory = jobCategory;
+    if (req.body.jobCategories !== undefined) {
+      updateData.jobCategories = Array.isArray(req.body.jobCategories)
+        ? req.body.jobCategories.filter(Boolean)
+        : [];
+      if (updateData.jobCategories.length > 0 && !updateData.jobCategory) {
+        updateData.jobCategory = updateData.jobCategories[0];
+      }
+    }
     if (applicationLink !== undefined)
       updateData.applicationLink = applicationLink.trim();
     if (location !== undefined) updateData.location = location.trim();
@@ -233,7 +270,9 @@ export const UpdateJob = async (req, res) => {
 
     const updatedJob = await Job.findByIdAndUpdate(id, updateData, {
       new: true,
-    }).populate("jobCategory", "name position");
+    })
+      .populate("jobCategory", "name position")
+      .populate("jobCategories", "name position");
 
     if (!updatedJob) {
       return res.status(404).json({ message: "Job not found" });
@@ -263,6 +302,27 @@ export const DeleteJob = async (req, res) => {
     });
   } catch (error) {
     console.error("Error deleting job:", error);
+    return res.status(500).json({ message: error.message, error });
+  }
+};
+
+// ❌ Delete Multiple Jobs
+export const deleteMultipleJobs = async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: "Array of job IDs is required" });
+    }
+
+    const result = await Job.deleteMany({ _id: { $in: ids } });
+
+    return res.status(200).json({
+      success: true,
+      message: `${result.deletedCount} job(s) deleted successfully`,
+      deletedCount: result.deletedCount,
+    });
+  } catch (error) {
+    console.error("Error deleting multiple jobs:", error);
     return res.status(500).json({ message: error.message, error });
   }
 };
@@ -367,3 +427,17 @@ export const getSpotlightJobs = async (req, res) => {
     return res.status(500).json({ message: error.message, error });
   }
 };
+
+export const getPendingJobsCount = async (req, res) => {
+  try {
+    const count = await Job.countDocuments({ status: "pending" });
+    return res.status(200).json({
+      success: true,
+      count,
+    });
+  } catch (error) {
+    console.error("Error fetching pending jobs count:", error);
+    return res.status(500).json({ message: error.message, error });
+  }
+};
+

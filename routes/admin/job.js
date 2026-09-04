@@ -9,9 +9,14 @@ import {
   updateJobStatus,
   approveJob,
   rejectJob,
+  getPendingJobsCount,
+  deleteMultipleJobs,
 } from "../../controller/admin/job.js";
 
 export const jobRouter = Router();
+
+jobRouter.route("/pending-count").get(getPendingJobsCount);
+jobRouter.route("/delete-multiple").post(deleteMultipleJobs).delete(deleteMultipleJobs);
 
 jobRouter.route("/").post(CreateJob).get(GetJobs);
 

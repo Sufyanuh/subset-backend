@@ -46,8 +46,14 @@ const jobSchema = new Schema(
     jobCategory: {
       type: Schema.Types.ObjectId,
       ref: "jobCategories",
-      required: true,
+      default: null,
     },
+    jobCategories: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: "jobCategories",
+      },
+    ],
     applicationLink: {
       type: String,
       trim: true,

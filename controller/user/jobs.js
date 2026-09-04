@@ -75,6 +75,7 @@ export const submitJobPost = async (req, res) => {
       visualAssets,
       jobTitle,
       jobCategory,
+      jobCategories,
       applicationLink,
       location,
       workplaceType,
@@ -93,42 +94,64 @@ export const submitJobPost = async (req, res) => {
     if (!jobTitle || !jobTitle.trim()) {
       return res.status(400).json({ message: "Job title is required." });
     }
-    if (!jobCategory) {
+
+    const finalCategories = Array.isArray(jobCategories)
+      ? jobCategories.filter(Boolean)
+      : jobCategory
+      ? [jobCategory]
+      : [];
+
+    if (!finalCategories.length && !jobCategory) {
       return res.status(400).json({ message: "Job category is required." });
     }
 
+    const primaryCategory = finalCategories[0] || jobCategory || null;
+
+    const cleanRichText = (str) => {
+      if (!str) return "";
+      return String(str)
+        .replace(/&amp;nbsp;/gi, " ")
+        .replace(/&nbsp;/gi, " ")
+        .replace(/\u00A0/g, " ")
+        .replace(/\u200B/g, "")
+        .replace(/\u00AD/g, "");
+    };
+
     const newJob = await Job.create({
       companyName: companyName.trim(),
-      aboutCompany: aboutCompany?.trim() || "",
+      aboutCompany: cleanRichText(aboutCompany).trim(),
       website: website?.trim() || "",
       instagram: instagram?.trim() || "",
       linkedin: linkedin?.trim() || "",
       companySize: companySize?.trim() || "",
       visualAssets: Array.isArray(visualAssets) ? visualAssets : [],
       jobTitle: jobTitle.trim(),
-      jobCategory,
+      jobCategory: primaryCategory,
+      jobCategories: finalCategories,
       applicationLink: applicationLink?.trim() || "",
       location: location?.trim() || "",
       workplaceType: workplaceType || "On-site",
       contractType: contractType || "Full-time",
       salaryRange: salaryRange?.trim() || "",
       currency: currency || "$",
-      overview: overview?.trim() || "",
+      overview: cleanRichText(overview).trim(),
       allowInternalConnections: Boolean(allowInternalConnections),
       status: "pending",
       submitterName:
-        submitterName?.trim() ||
         req.user?.fullName ||
+        (req.user?.firstName
+          ? `${req.user.firstName} ${req.user.lastName || ""}`.trim()
+          : "") ||
         req.user?.username ||
+        submitterName?.trim() ||
         "",
-      submitterEmail: submitterEmail?.trim() || req.user?.email || "",
+      submitterEmail: req.user?.email || submitterEmail?.trim() || "",
       postedBy: req.user?._id || null,
     });
 
-    const populatedJob = await Job.findById(newJob._id).populate(
-      "jobCategory",
-      "name position"
-    );
+    const populatedJob = await Job.findById(newJob._id)
+      .populate("jobCategory", "name position")
+      .populate("jobCategories", "name position");
 
     return res.status(201).json({
       success: true,
