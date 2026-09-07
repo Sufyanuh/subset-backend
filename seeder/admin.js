@@ -3,26 +3,29 @@ import { adminAuth } from "../model/admin.js";
 
 const seedAdmin = async () => {
   try {
-    const adminExists = await adminAuth.findOne({ email: "admin@subset.com" });
+    // Check if any admin account already exists
+    const adminExists = await adminAuth.findOne({});
 
     if (adminExists) {
-      console.log("Admin already exists");
+      console.log("Admin account already configured in database");
       return;
     }
 
-    const hashedPassword = await bcrypt.hash("12345678", 10);
+    const defaultEmail = process.env.DEFAULT_ADMIN_EMAIL || "admin@subset.com";
+    const defaultPassword = process.env.DEFAULT_ADMIN_PASSWORD || "12345678";
+    const hashedPassword = await bcrypt.hash(defaultPassword, 10);
 
     const newAdmin = new adminAuth({
-      name: "admin",
-      email: "admin@subset.com",
-      password: hashedPassword, // Save the hashed password
+      name: "Admin",
+      email: defaultEmail.toLowerCase().trim(),
+      password: hashedPassword,
       token: null,
     });
 
     await newAdmin.save();
-    console.log("Default admin created successfully!");
+    console.log(`Default admin created: ${defaultEmail}`);
   } catch (error) {
-    console.error("Error seeding admin:", error);
+    console.error("Error seeding admin:", error.message || error);
   }
 };
 

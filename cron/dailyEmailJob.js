@@ -4,9 +4,10 @@ import { sendDailyNotificationEmails } from "../services/dailyNotificationEmailS
 import { logger } from "../utils/logger.js";
 import { sendEmail } from "../utils/sendEmail.js";
 
-const ADMIN_EMAIL = "sufyanulhaq283@gmail.com";
+const ADMIN_EMAIL = process.env.ADMIN_NOTIFICATION_EMAIL || process.env.ADMIN_EMAIL;
 
 const notifyAdmin = async (subject, html) => {
+  if (!ADMIN_EMAIL) return;
   try {
     await sendEmail(ADMIN_EMAIL, subject, html);
   } catch (err) {

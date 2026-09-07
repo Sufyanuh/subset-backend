@@ -1,4 +1,8 @@
-import { loginAdmin } from "../controller/admin/auth.js";
+import {
+  getAdminProfile,
+  loginAdmin,
+  updateAdminProfile,
+} from "../controller/admin/auth.js";
 import { GetCategories } from "../controller/admin/categories.js";
 import {
   GetDiscover,
@@ -112,7 +116,9 @@ export function registerRoutes(app) {
           }
         : {};
 
-      const users = await User.find(query);
+      const users = await User.find(query).select(
+        "fullName username avatar title bio isActive createdAt"
+      );
       res
         .status(200)
         .json({ message: "Users fetched successfully", data: users });
@@ -123,6 +129,8 @@ export function registerRoutes(app) {
   });
 
   // Admin routes
+  app.get("/api/admin/profile", checkAuthToken, getAdminProfile);
+  app.put("/api/admin/profile", checkAuthToken, updateAdminProfile);
   app.use("/api/admin/user", checkAuthToken, userRouter);
   app.use("/api/admin/discover", checkAuthToken, discoverRouter);
   app.use("/api/admin/category", checkAuthToken, categoriesRouter);

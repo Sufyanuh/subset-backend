@@ -43,6 +43,7 @@
     "puppeteer": "^24.43.1",
     "socket.io": "^4.8.1",
     "stripe": "^14.25.0",
-    "subsetbackend": "file:"
+    "subsetbackend": "file:",
+    "xlsx": "^0.18.5"
   }
 }

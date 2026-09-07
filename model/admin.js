@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+
 const adminSchema = Schema({
   name: {
     type: String,
@@ -11,6 +12,10 @@ const adminSchema = Schema({
     required: true,
     unique: true,
     default: "admin@subset.com",
+  },
+  avatar: {
+    type: String,
+    default: "",
   },
   token: { type: String, default: null },
 });

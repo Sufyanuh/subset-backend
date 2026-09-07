@@ -5,8 +5,8 @@ import nodemailer from "nodemailer";
 // "421 too many commands" errors that occur when a single persistent
 // connection is flooded with sequential DATA commands.
 const transporter = nodemailer.createTransport({
-  host: "smtp.mail.us-east-1.awsapps.com",
-  port: 465,
+  host: process.env.SMTP_HOST || "smtp.mail.us-east-1.awsapps.com",
+  port: Number(process.env.SMTP_PORT) || 465,
   secure: true,
   pool: true,         // enable connection pool
   maxConnections: 3,  // max simultaneous SMTP connections
@@ -14,8 +14,8 @@ const transporter = nodemailer.createTransport({
   rateDelta: 1000,    // rate-limit window in ms
   rateLimit: 3,       // max messages per rateDelta window
   auth: {
-    user: "contact@thesubset.org",
-    pass: "GnKn@o@^2026",
+    user: process.env.SMTP_USER || "contact@thesubset.org",
+    pass: process.env.SMTP_PASS,
   },
 });
 

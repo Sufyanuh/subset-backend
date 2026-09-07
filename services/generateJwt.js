@@ -16,11 +16,15 @@ export const verifyToken = async (token, type) => {
 
     if (type === "admin") {
       const admin = await adminAuth.findById(decoded._id).lean();
-      return admin || null;
+      if (admin) return admin;
     }
 
     const user = await User.findById(decoded._id).lean();
-    return user || null;
+    if (user) return user;
+
+    // Fallback in case type was not matched or admin called standard endpoint
+    const fallbackAdmin = await adminAuth.findById(decoded._id).lean();
+    return fallbackAdmin || null;
   } catch (error) {
     console.error("JWT Verify Error:", error.message);
     return null;

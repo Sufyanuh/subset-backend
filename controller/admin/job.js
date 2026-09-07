@@ -94,6 +94,8 @@ export const GetJobs = async (req, res) => {
       status,
       spotLight,
       sort,
+      page,
+      limit,
     } = req.query;
 
     const filter = {};
@@ -172,13 +174,33 @@ export const GetJobs = async (req, res) => {
       sortOption = { createdAt: 1 };
     }
 
-    const jobs = await Job.find(filter)
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+
+    let query = Job.find(filter)
       .populate("jobCategory", "name position")
       .populate("jobCategories", "name position")
       .populate("postedBy", "fullName firstName lastName username email avatar profilePicture")
       .populate("connections", "fullName username email avatar title")
       .populate("savedByUsers", "fullName username email avatar title")
       .sort(sortOption);
+
+    if (pageNum && limitNum) {
+      const total = await Job.countDocuments(filter);
+      const jobs = await query.skip((pageNum - 1) * limitNum).limit(limitNum);
+      const totalPages = Math.ceil(total / limitNum);
+
+      return res.status(200).json({
+        message: "Jobs fetched successfully",
+        data: jobs,
+        total,
+        page: pageNum,
+        totalPages,
+        hasMore: pageNum < totalPages,
+      });
+    }
+
+    const jobs = await query;
 
     return res.status(200).json({
       message: "Jobs fetched successfully",
