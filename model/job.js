@@ -91,6 +91,11 @@ const jobSchema = new Schema(
       type: String,
       default: "",
     },
+    // 05 -> Listing Duration
+    listingDuration: {
+      type: String,
+      default: "30 Days",
+    },
     allowInternalConnections: {
       type: Boolean,
       default: false,
@@ -101,6 +106,24 @@ const jobSchema = new Schema(
       type: String,
       enum: ["active", "pending", "rejected", "draft", "archived", "closed"],
       default: "active",
+    },
+    isEdited: {
+      type: Boolean,
+      default: false,
+    },
+    editedFields: {
+      type: [String],
+      default: [],
+    },
+    editedFieldChanges: [
+      {
+        field: { type: String },
+        oldValue: { type: String, default: "" },
+        newValue: { type: String, default: "" },
+      },
+    ],
+    lastEditedAt: {
+      type: Date,
     },
     submitterEmail: {
       type: String,

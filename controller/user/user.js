@@ -48,11 +48,15 @@ export const getUserByUserName = async (req, res) => {
         $or: [
           { _id: { $in: user.savedJobs || [] } },
           { savedByUsers: user._id },
+          { postedBy: user._id },
+          ...(user.email ? [{ submitterEmail: user.email }] : []),
         ],
       })
         .populate("jobCategory", "name position")
+        .populate("jobCategories", "name position")
         .populate("connections", "fullName username email avatar title")
         .populate("savedByUsers", "fullName username email avatar title")
+        .populate("postedBy", "fullName username email avatar title")
         .sort({ createdAt: -1 });
     }
 

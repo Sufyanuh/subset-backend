@@ -1,5 +1,5 @@
+import "dotenv/config";
 import cors from "cors";
-import dotenv from "dotenv";
 import express from "express";
 import http from "http";
 import mongoose from "mongoose";
@@ -17,8 +17,6 @@ import cron from "node-cron";
 // ✅ Import enhanced logger and crash tracker
 import { logger, CrashTracker, getCurrentDate } from "./utils/logger.js";
 import { randomizeDiscoverIndexes } from "./services/discoverRandomizer.js";
-
-dotenv.config();
 
 // 🚨 Check for previous crashes on startup
 const previousCrash = CrashTracker.checkForPreviousCrash();

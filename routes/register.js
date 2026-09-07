@@ -52,7 +52,7 @@ import {
   GetJobById,
   getSpotlightJobs,
 } from "../controller/admin/job.js";
-import { submitJobPost } from "../controller/user/jobs.js";
+import { submitJobPost, UpdateUserJob } from "../controller/user/jobs.js";
 import { userBoardsRouter } from "./user/boards.js";
 import booknowRoutes from "./user/booknow.js";
 import { channelRoutes } from "./user/channel.js";
@@ -83,6 +83,7 @@ export function registerRoutes(app) {
   app.get("/api/jobs/spotlight", getSpotlightJobs);
   app.get("/api/jobs", GetJobs);
   app.post("/api/jobs/submit", checkAuthToken, submitJobPost);
+  app.put("/api/jobs/:id", checkAuthToken, UpdateUserJob);
   app.get("/api/jobs/:id", GetJobById);
   app.post("/api/user/google-login", loginWithGoogle);
   app.post("/api/user/login", loginUser);

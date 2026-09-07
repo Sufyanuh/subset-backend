@@ -22,6 +22,7 @@ export const CreateJob = async (req, res) => {
       salaryRange,
       currency,
       overview,
+      listingDuration,
       allowInternalConnections,
       status,
     } = req.body;
@@ -63,6 +64,7 @@ export const CreateJob = async (req, res) => {
       salaryRange: salaryRange?.trim() || "",
       currency: currency || "$",
       overview: overview || "",
+      listingDuration: listingDuration || "30 Days",
       allowInternalConnections: Boolean(allowInternalConnections),
       status: status || "active",
       postedBy: req.user?._id || null,
@@ -286,9 +288,22 @@ export const UpdateJob = async (req, res) => {
     if (salaryRange !== undefined) updateData.salaryRange = salaryRange.trim();
     if (currency !== undefined) updateData.currency = currency;
     if (overview !== undefined) updateData.overview = overview;
+    if (req.body.listingDuration !== undefined)
+      updateData.listingDuration = req.body.listingDuration;
     if (allowInternalConnections !== undefined)
       updateData.allowInternalConnections = Boolean(allowInternalConnections);
-    if (status !== undefined) updateData.status = status;
+    if (req.body.isEdited !== undefined) updateData.isEdited = req.body.isEdited;
+    if (req.body.editedFields !== undefined) updateData.editedFields = req.body.editedFields;
+    if (req.body.editedFieldChanges !== undefined)
+      updateData.editedFieldChanges = req.body.editedFieldChanges;
+    if (status !== undefined) {
+      updateData.status = status;
+      if (status === "active" && req.body.isEdited === undefined) {
+        updateData.isEdited = false;
+        updateData.editedFields = [];
+        updateData.editedFieldChanges = [];
+      }
+    }
 
     const updatedJob = await Job.findByIdAndUpdate(id, updateData, {
       new: true,
@@ -336,34 +351,35 @@ export const deleteMultipleJobs = async (req, res) => {
       return res.status(400).json({ message: "Array of job IDs is required" });
     }
 
-    const result = await Job.deleteMany({ _id: { $in: ids } });
+    await Job.deleteMany({ _id: { $in: ids } });
 
-    return res.status(200).json({
-      success: true,
-      message: `${result.deletedCount} job(s) deleted successfully`,
-      deletedCount: result.deletedCount,
-    });
+    return res.status(200).json({ message: "Jobs deleted successfully" });
   } catch (error) {
     console.error("Error deleting multiple jobs:", error);
     return res.status(500).json({ message: error.message, error });
   }
 };
 
-export const updateJobStatus = async (req, res) => {
+export const UpdateJobStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-
+    const updateObj = { status };
+    if (status === "active") {
+      updateObj.isEdited = false;
+      updateObj.editedFields = [];
+      updateObj.editedFieldChanges = [];
+    }
     const job = await Job.findByIdAndUpdate(
       id,
-      { status },
+      updateObj,
       { new: true }
     ).populate("jobCategory", "name position");
     if (!job) {
       return res.status(404).json({ message: "Job not found" });
     }
     return res.status(200).json({
-      message: `Job status updated to ${status} successfully`,
+      message: "Job status updated successfully",
       data: job,
     });
   } catch (error) {
@@ -372,12 +388,14 @@ export const updateJobStatus = async (req, res) => {
   }
 };
 
+export const updateJobStatus = UpdateJobStatus;
+
 export const approveJob = async (req, res) => {
   try {
     const { id } = req.params;
     const job = await Job.findByIdAndUpdate(
       id,
-      { status: "active" },
+      { status: "active", isEdited: false, editedFields: [], editedFieldChanges: [] },
       { new: true }
     ).populate("jobCategory", "name position");
     if (!job) {
