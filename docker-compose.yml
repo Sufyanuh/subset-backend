@@ -1,3 +1,5 @@
+version: '3.8'
+
 services:
   app:
     build:
@@ -6,32 +8,17 @@ services:
     container_name: subset
     restart: always
     ports:
-      - "8116:8116"
+      - "8116:8116"       # host:container
     volumes:
-      - .:/app
-      - /app/node_modules
+      - .:/app            # Mount current dir to container
+      - /app/node_modules # Prevent overwriting node_modules
     environment:
       NODE_ENV: production
     command: npm run dev
+    networks:
+      - subset
 
-  changedetection:
-    image: ghcr.io/dgtlmoon/changedetection.io:latest
-    container_name: changedetection
-    restart: unless-stopped
-    ports:
-      - "5000:5000"
-    volumes:
-      - ./changedetection-data:/datastore
-    environment:
-      - PLAYWRIGHT_DRIVER_URL=ws://playwright-chrome:3000
-    depends_on:
-      - playwright-chrome
+networks:
+  subset:
+    driver: bridge
 
-  playwright-chrome:
-    image: dgtlmoon/sockpuppetbrowser:latest
-    container_name: playwright-chrome
-    restart: unless-stopped
-    environment:
-      - SCREEN_WIDTH=1920
-      - SCREEN_HEIGHT=1080
-      - SCREEN_DEPTH=16
