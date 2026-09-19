@@ -2,6 +2,7 @@ import express from "express";
 import multer from "multer";
 import {
   importStudiosCsv,
+  syncStudiosWithChangedetection,
   getMonitoredStudios,
   getDetectedJobs,
   convertDetectedJob,
@@ -14,6 +15,7 @@ export const studioRouter = express.Router();
 
 // Studios Management & CSV Import
 studioRouter.post("/import-csv", upload.single("file"), importStudiosCsv);
+studioRouter.post("/sync", syncStudiosWithChangedetection);
 studioRouter.get("/", getMonitoredStudios);
 
 // Detected Jobs Review Queue
