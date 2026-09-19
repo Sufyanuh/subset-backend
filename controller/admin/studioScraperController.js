@@ -171,48 +171,96 @@ async function syncStudiosWithChangedetectionBackground() {
 }
 
 /**
- * Explicit trigger to sync unregistered studios to changedetection.io
+ * Smart Sync: Syncs studios to changedetection.io
+ * Checks live watches on changedetection and re-creates any that were deleted!
  */
 export const syncStudiosWithChangedetection = async (req, res) => {
   try {
-    const pendingStudios = await MonitoredStudio.find({
-      $or: [
-        { changedetectionUuid: { $in: [null, ""] } },
-        { changedetectionStatus: { $ne: "registered" } },
-      ],
-      isActive: true,
-    }).limit(200);
+    // 1. Get live watches from changedetection.io
+    const watchesRes = await changedetectionService.getWatches();
+    const liveWatches = watchesRes.success ? watchesRes.watches || {} : {};
+    const liveUuids = new Set(Object.keys(liveWatches));
 
-    if (pendingStudios.length === 0) {
-      return res.status(200).json({ message: "All active studios are already registered with changedetection.io", count: 0 });
-    }
+    // 2. Fetch all active studios
+    const allStudios = await MonitoredStudio.find({ isActive: true }).limit(500);
 
     let syncedCount = 0;
-    for (const studio of pendingStudios) {
-      const result = await changedetectionService.createWatch({
-        url: studio.targetUrl,
-        title: studio.name,
-        tag: "studio",
-      });
-      if (result.success && result.uuid) {
-        studio.changedetectionUuid = result.uuid;
-        studio.changedetectionStatus = "registered";
-        studio.lastError = "";
-        syncedCount++;
-      } else {
-        studio.changedetectionStatus = "error";
-        studio.lastError = result.error || "Failed to create watch";
+    for (const studio of allStudios) {
+      // If studio has no UUID OR its UUID does not exist in changedetection live watches:
+      const needsCreation = !studio.changedetectionUuid || !liveUuids.has(studio.changedetectionUuid);
+
+      if (needsCreation) {
+        const result = await changedetectionService.createWatch({
+          url: studio.targetUrl,
+          title: studio.name,
+          tag: "studio",
+        });
+
+        if (result.success && result.uuid) {
+          studio.changedetectionUuid = result.uuid;
+          studio.changedetectionStatus = "registered";
+          studio.lastError = "";
+          syncedCount++;
+        } else {
+          studio.changedetectionStatus = "error";
+          studio.lastError = result.error || "Failed to create watch";
+        }
+        await studio.save();
+        await new Promise((r) => setTimeout(r, 150));
       }
-      await studio.save();
-      await new Promise((r) => setTimeout(r, 200));
     }
 
     return res.status(200).json({
-      message: `Successfully synced ${syncedCount} studios to changedetection.io`,
+      message:
+        syncedCount > 0
+          ? `Successfully synced ${syncedCount} studios to changedetection.io`
+          : "All studios are already up to date in changedetection.io",
       count: syncedCount,
     });
   } catch (err) {
     return res.status(500).json({ message: "Sync failed", error: err.message });
+  }
+};
+
+/**
+ * Delete a single studio from MongoDB & changedetection.io
+ */
+export const deleteStudio = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const studio = await MonitoredStudio.findById(id);
+    if (!studio) {
+      return res.status(404).json({ message: "Studio not found" });
+    }
+
+    // Delete watch from changedetection.io
+    if (studio.changedetectionUuid) {
+      await changedetectionService.deleteWatch(studio.changedetectionUuid);
+    }
+
+    await MonitoredStudio.findByIdAndDelete(id);
+
+    return res.status(200).json({ message: "Studio deleted successfully" });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to delete studio", error: err.message });
+  }
+};
+
+/**
+ * Clear all monitored studios from MongoDB & changedetection.io
+ */
+export const clearAllStudios = async (req, res) => {
+  try {
+    const allStudios = await MonitoredStudio.find({});
+    for (const s of allStudios) {
+      if (s.changedetectionUuid) {
+        await changedetectionService.deleteWatch(s.changedetectionUuid);
+      }
+    }
+    await MonitoredStudio.deleteMany({});
+    return res.status(200).json({ message: "All monitored studios cleared successfully" });
+  } catch (err) {
+    return res.status(500).json({ message: "Failed to clear studios", error: err.message });
   }
 };
 
