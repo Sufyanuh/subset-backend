@@ -46,6 +46,8 @@ import { userRouter } from "./admin/user.js";
 import { spotlightRouter } from "./admin/spotlight.js";
 import { jobCategoryRouter } from "./admin/jobCategory.js";
 import { jobRouter } from "./admin/job.js";
+import { studioRouter, detectedJobRouter } from "./admin/studioRoutes.js";
+import { handleChangedetectionWebhook } from "../controller/admin/changedetectionWebhookController.js";
 import { GetJobCategories } from "../controller/admin/jobCategory.js";
 import {
   GetJobs,
@@ -118,7 +120,7 @@ export function registerRoutes(app) {
         : {};
 
       const users = await User.find(query).select(
-        "fullName username avatar title bio isActive createdAt"
+        "fullName username avatar title bio isActive createdAt",
       );
       res
         .status(200)
@@ -138,6 +140,9 @@ export function registerRoutes(app) {
   app.use("/api/admin/spotlight", checkAuthToken, spotlightRouter);
   app.use("/api/admin/job-category", checkAuthToken, jobCategoryRouter);
   app.use("/api/admin/job", checkAuthToken, jobRouter);
+  app.use("/api/admin/studios", checkAuthToken, studioRouter);
+  app.use("/api/admin/detected-jobs", checkAuthToken, detectedJobRouter);
+  app.post("/api/webhooks/changedetection", handleChangedetectionWebhook);
   app.use("/api/admin/channel", checkAuthToken, channelRouter);
   app.use("/api/admin/subchannel", checkAuthToken, subChannelRoutes);
   app.use("/api/admin/mentors", adminMentorRoutes);
