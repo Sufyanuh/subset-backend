@@ -171,54 +171,118 @@ async function syncStudiosWithChangedetectionBackground() {
 }
 
 /**
- * Smart Sync: Syncs studios to changedetection.io
- * Checks live watches on changedetection and re-creates any that were deleted!
+ * Bidirectional 2-Way Sync:
+ * 1. If watch deleted in changedetection.io -> deletes from MongoDB & Admin Panel.
+ * 2. If new watch added in changedetection.io -> creates in MongoDB & Admin Panel.
+ * 3. If studio in MongoDB not yet in changedetection -> creates watch in changedetection.
  */
 export const syncStudiosWithChangedetection = async (req, res) => {
   try {
-    // 1. Get live watches from changedetection.io
+    if (!changedetectionService.isConfigured()) {
+      return res.status(400).json({ message: "Changedetection service not configured (missing URL or API key)" });
+    }
+
+    // 1. Fetch all live watches from changedetection.io
     const watchesRes = await changedetectionService.getWatches();
-    const liveWatches = watchesRes.success ? watchesRes.watches || {} : {};
-    const liveUuids = new Set(Object.keys(liveWatches));
+    if (!watchesRes.success) {
+      return res.status(500).json({ message: "Failed to connect to changedetection.io", error: watchesRes.error });
+    }
 
-    // 2. Fetch all active studios
-    const allStudios = await MonitoredStudio.find({ isActive: true }).limit(500);
+    const liveWatches = watchesRes.watches || {};
+    const liveUuids = Object.keys(liveWatches);
+    const liveUuidSet = new Set(liveUuids);
 
-    let syncedCount = 0;
-    for (const studio of allStudios) {
-      // If studio has no UUID OR its UUID does not exist in changedetection live watches:
-      const needsCreation = !studio.changedetectionUuid || !liveUuids.has(studio.changedetectionUuid);
+    // 2. BIDIRECTIONAL DELETION:
+    // If a studio was registered with a UUID, but that UUID no longer exists in changedetection.io -> DELETE FROM DB
+    const deleteResult = await MonitoredStudio.deleteMany({
+      changedetectionUuid: { $exists: true, $ne: null, $nin: liveUuids },
+      changedetectionStatus: "registered",
+    });
 
-      if (needsCreation) {
-        const result = await changedetectionService.createWatch({
-          url: studio.targetUrl,
-          title: studio.name,
+    // 3. BIDIRECTIONAL ADDITION (from changedetection.io to MongoDB):
+    let importedFromCd = 0;
+    for (const uuid of liveUuids) {
+      const watch = liveWatches[uuid];
+      const watchUrl = watch.url || watch.link || "";
+      if (!watchUrl) continue;
+
+      // Find by UUID or Target URL
+      let studio = await MonitoredStudio.findOne({
+        $or: [{ changedetectionUuid: uuid }, { targetUrl: watchUrl }],
+      });
+
+      if (!studio) {
+        // Newly added directly on changedetection.io dashboard!
+        let hostName = "";
+        try {
+          hostName = new URL(watchUrl).hostname.replace(/^www\./, "");
+        } catch {
+          hostName = "New Studio";
+        }
+
+        await MonitoredStudio.create({
+          name: watch.title || hostName,
+          website: watchUrl,
+          targetUrl: watchUrl,
+          changedetectionUuid: uuid,
+          changedetectionStatus: "registered",
+          isActive: true,
+          tags: watch.tags || ["studio"],
+        });
+        importedFromCd++;
+      } else if (!studio.changedetectionUuid) {
+        studio.changedetectionUuid = uuid;
+        studio.changedetectionStatus = "registered";
+        await studio.save();
+      }
+    }
+
+    // 4. BIDIRECTIONAL PUSH (from MongoDB to changedetection.io):
+    // Any active studio in DB that is not yet on changedetection
+    const pendingInDb = await MonitoredStudio.find({
+      $or: [
+        { changedetectionUuid: { $in: [null, ""] } },
+        { changedetectionStatus: { $ne: "registered" } },
+      ],
+      isActive: true,
+    }).limit(200);
+
+    let pushedToCd = 0;
+    for (const s of pendingInDb) {
+      if (!s.changedetectionUuid || !liveUuidSet.has(s.changedetectionUuid)) {
+        const createRes = await changedetectionService.createWatch({
+          url: s.targetUrl,
+          title: s.name,
           tag: "studio",
         });
 
-        if (result.success && result.uuid) {
-          studio.changedetectionUuid = result.uuid;
-          studio.changedetectionStatus = "registered";
-          studio.lastError = "";
-          syncedCount++;
+        if (createRes.success && createRes.uuid) {
+          s.changedetectionUuid = createRes.uuid;
+          s.changedetectionStatus = "registered";
+          s.lastError = "";
+          pushedToCd++;
         } else {
-          studio.changedetectionStatus = "error";
-          studio.lastError = result.error || "Failed to create watch";
+          s.changedetectionStatus = "error";
+          s.lastError = createRes.error || "Failed to create watch";
         }
-        await studio.save();
-        await new Promise((r) => setTimeout(r, 150));
+        await s.save();
+        await new Promise((r) => setTimeout(r, 100));
       }
     }
 
     return res.status(200).json({
-      message:
-        syncedCount > 0
-          ? `Successfully synced ${syncedCount} studios to changedetection.io`
-          : "All studios are already up to date in changedetection.io",
-      count: syncedCount,
+      success: true,
+      message: `2-Way Sync Complete! Removed: ${deleteResult.deletedCount}, Added from Changedetection: ${importedFromCd}, Pushed to Changedetection: ${pushedToCd}`,
+      stats: {
+        removedFromDb: deleteResult.deletedCount,
+        addedFromChangedetection: importedFromCd,
+        pushedToChangedetection: pushedToCd,
+        totalLiveOnChangedetection: liveUuids.length,
+      },
     });
   } catch (err) {
-    return res.status(500).json({ message: "Sync failed", error: err.message });
+    logger.error("Error in 2-way sync", err);
+    return res.status(500).json({ message: "2-way sync failed", error: err.message });
   }
 };
 
