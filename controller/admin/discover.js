@@ -4,6 +4,7 @@ import { Discover } from "../../model/discover.js";
 import { DiscoverforLogin } from "../../model/discoverforLogin.js";
 import { deleteFromS3 } from "../../services/deleteFromS3.js";
 import { DiscoverforScreenSaver } from "../../model/discoverForScreenSaver.js";
+import { resolveVideoThumbnail } from "../../utils/videoThumbnail.js";
 
 dotenv.config();
 
@@ -106,28 +107,32 @@ export const AddDiscoverVideo = async (req, res) => {
     );
 
     // 🔥 STEP 2: new docs prepare karo
-    const newVideos = image.map((vid, i) => {
-      if (!vid.url || !vid.tags || !vid.categories || !vid.title) {
-        throw new Error(
-          `Video ${i + 1} ka URL, Tags, Categories aur Title required hai`,
-        );
-      }
+    const newVideos = await Promise.all(
+      image.map(async (vid, i) => {
+        if (!vid.url || !vid.tags || !vid.categories || !vid.title) {
+          throw new Error(
+            `Video ${i + 1} ka URL, Tags, Categories aur Title required hai`,
+          );
+        }
 
-      return {
-        title: vid.title,
-        image: vid.url,
-        thumbnail: vid.thumbnail || "",
-        type: "video",
-        tags: vid.tags,
-        categories: vid.categories,
-        source: source || "",
-        sourceType: sourceType || "",
-        uploadAt,
-        index: i, // 👈 always start from 0
-        forShop: vid.forShop || false,
-        shopUrl: vid.shopUrl || "",
-      };
-    });
+        const resolvedThumb = vid.thumbnail || (await resolveVideoThumbnail(vid.url, sourceType));
+
+        return {
+          title: vid.title,
+          image: vid.url,
+          thumbnail: resolvedThumb || "",
+          type: "video",
+          tags: vid.tags,
+          categories: vid.categories,
+          source: source || "",
+          sourceType: sourceType || "",
+          uploadAt,
+          index: i, // 👈 always start from 0
+          forShop: vid.forShop || false,
+          shopUrl: vid.shopUrl || "",
+        };
+      })
+    );
 
     // 🔥 STEP 3: bulk insert
     await Discover.insertMany(newVideos);

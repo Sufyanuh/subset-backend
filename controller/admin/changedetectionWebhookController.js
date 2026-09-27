@@ -9,7 +9,21 @@ import { logger } from "../../utils/logger.js";
  */
 export const handleChangedetectionWebhook = async (req, res) => {
   try {
-    const payload = req.body || {};
+    let payload = req.body || {};
+
+    // 0. Support Apprise wrapper where JSON body is nested inside payload.message
+    if (payload.message && typeof payload.message === "string") {
+      try {
+        const parsed = JSON.parse(payload.message);
+        payload = { ...payload, ...parsed };
+      } catch (e) {
+        // Not JSON formatted string
+      }
+    } else if (typeof payload === "string") {
+      try {
+        payload = JSON.parse(payload);
+      } catch (e) {}
+    }
 
     const watchUrl =
       payload.watch_url || payload.url || payload.target_url || "";
