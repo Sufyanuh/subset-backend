@@ -17,22 +17,66 @@ export const handleChangedetectionWebhook = async (req, res) => {
         const parsed = JSON.parse(payload.message);
         payload = { ...payload, ...parsed };
       } catch (e) {
-        // Not JSON formatted string
+        // Fallback: If JSON.parse fails (common when diff contains unescaped newlines/quotes)
+        const msg = payload.message;
+        const urlMatch =
+          msg.match(/"watch_url"\s*:\s*"([^"]+)"/i) ||
+          msg.match(/"url"\s*:\s*"([^"]+)"/i) ||
+          msg.match(/(https?:\/\/[^\s"',}]+)/i);
+        const uuidMatch =
+          msg.match(/"watch_uuid"\s*:\s*"([^"]+)"/i) ||
+          msg.match(/"uuid"\s*:\s*"([^"]+)"/i);
+        const titleMatch =
+          msg.match(/"watch_title"\s*:\s*"([^"]+)"/i) ||
+          msg.match(/"title"\s*:\s*"([^"]+)"/i);
+        const diffMatch = msg.match(
+          /"diff(?:_full)?"\s*:\s*"([\s\S]*?)"(?=\s*,\s*"|\s*})/i
+        );
+
+        if (urlMatch && !payload.watch_url) payload.watch_url = urlMatch[1];
+        if (uuidMatch && !payload.watch_uuid) payload.watch_uuid = uuidMatch[1];
+        if (titleMatch && !payload.watch_title) payload.watch_title = titleMatch[1];
+        if (diffMatch && !payload.diff) payload.diff = diffMatch[1];
+        else if (!payload.diff) payload.diff = msg;
       }
     } else if (typeof payload === "string") {
       try {
         payload = JSON.parse(payload);
-      } catch (e) {}
+      } catch (e) {
+        const urlMatch = payload.match(/(https?:\/\/[^\s"',}]+)/i);
+        if (urlMatch) payload = { watch_url: urlMatch[1], diff: payload };
+      }
     }
 
-    const watchUrl =
+    let watchUrl =
       payload.watch_url || payload.url || payload.target_url || "";
-    const watchUuid = payload.watch_uuid || payload.uuid || "";
+    let watchUuid = payload.watch_uuid || payload.uuid || "";
     const diff = payload.diff || payload.diff_full || "";
     const snapshotUrl =
       payload.current_snapshot || payload.snapshot || payload.screenshot || "";
-    const studioTitle =
+    let studioTitle =
       payload.watch_title || payload.title || payload.studio || "";
+
+    // Fallback: extract watchUrl from payload.title if missing
+    if (!watchUrl && payload.title) {
+      const titleUrlMatch = payload.title.match(/(https?:\/\/[^\s"']+)/i);
+      if (titleUrlMatch) {
+        watchUrl = titleUrlMatch[1].trim();
+      }
+    }
+
+    // Fallback: extract watchUrl from raw message if still missing
+    if (!watchUrl && typeof payload.message === "string") {
+      const msgUrlMatch = payload.message.match(/(https?:\/\/[^\s"',}]+)/i);
+      if (msgUrlMatch) {
+        watchUrl = msgUrlMatch[1].trim();
+      }
+    }
+
+    // Clean up studioTitle if it has generic notification prefix
+    if (studioTitle && studioTitle.includes("ChangeDetection.io Notification")) {
+      studioTitle = studioTitle.replace(/ChangeDetection\.io Notification\s*-\s*/i, "").trim();
+    }
 
     if (!watchUrl && !watchUuid) {
       logger.warn("Changedetection webhook missing watch_url and watch_uuid", {
