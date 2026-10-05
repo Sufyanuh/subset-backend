@@ -141,7 +141,7 @@ export function registerRoutes(app) {
 
   app.get("/api/admin/profile", checkAuthToken, getAdminProfile);
   app.put("/api/admin/profile", checkAuthToken, updateAdminProfile);
-  app.use("/api/admin/dashboard", checkAuthToken, dashboardRouter);
+  app.use("/api/admin/dashboard", dashboardRouter);
   app.use("/api/admin/user", checkAuthToken, userRouter);
   app.use("/api/admin/discover", checkAuthToken, discoverRouter);
   app.use("/api/admin/category", checkAuthToken, categoriesRouter);

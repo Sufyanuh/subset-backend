@@ -1,4 +1,5 @@
 import express from "express";
+import { checkAuthToken } from "../../middleware/checkToken.js";
 import {
   getDashboardStats,
   ping,
@@ -7,7 +8,7 @@ import {
 
 export const dashboardRouter = express.Router();
 
-dashboardRouter.get("/stats", getDashboardStats);
+dashboardRouter.get("/stats", checkAuthToken, getDashboardStats);
 dashboardRouter.get("/ping", ping);
 dashboardRouter.get("/speed-test-payload", getSpeedTestPayload);
 
