@@ -1,29 +1,41 @@
 import express from "express";
 import multer from "multer";
 import {
-  importStudiosCsv,
-  syncStudiosWithChangedetection,
+  importStudios,
+  createStudio,
+  updateStudio,
+  getStudios,
+  getStudioById,
+  scrapeSingleStudio,
+  scrapeAllStudios,
+  getScraperStats,
   deleteStudio,
   clearAllStudios,
-  getMonitoredStudios,
-  getDetectedJobs,
-  convertDetectedJob,
-  rejectDetectedJob,
-} from "../../controller/admin/studioScraperController.js";
+} from "../../controller/admin/studioController.js";
 
-const upload = multer({ storage: multer.memoryStorage() });
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB limit for large studio CSVs
+});
 
 export const studioRouter = express.Router();
 
-// Studios Management & CSV Import
-studioRouter.post("/import-csv", upload.single("file"), importStudiosCsv);
-studioRouter.post("/sync", syncStudiosWithChangedetection);
-studioRouter.delete("/clear-all", clearAllStudios);
-studioRouter.delete("/:id", deleteStudio);
-studioRouter.get("/", getMonitoredStudios);
+// 1. Bulk Ingestion
+studioRouter.post("/import", upload.single("file"), importStudios);
 
-// Detected Jobs Review Queue
-export const detectedJobRouter = express.Router();
-detectedJobRouter.get("/", getDetectedJobs);
-detectedJobRouter.post("/:id/convert", convertDetectedJob);
-detectedJobRouter.put("/:id/reject", rejectDetectedJob);
+// 2. Metrics & Stats
+studioRouter.get("/stats", getScraperStats);
+
+// 3. Batch Scraping
+studioRouter.post("/scrape-all", scrapeAllStudios);
+
+// 4. Listing & Single Studio operations
+studioRouter.get("/", getStudios);
+studioRouter.post("/", createStudio);
+studioRouter.delete("/", clearAllStudios);
+studioRouter.get("/:id", getStudioById);
+studioRouter.put("/:id", updateStudio);
+studioRouter.post("/:id/scrape", scrapeSingleStudio);
+studioRouter.delete("/:id", deleteStudio);
+
+export default studioRouter;

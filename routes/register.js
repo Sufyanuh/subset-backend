@@ -46,8 +46,7 @@ import { userRouter } from "./admin/user.js";
 import { spotlightRouter } from "./admin/spotlight.js";
 import { jobCategoryRouter } from "./admin/jobCategory.js";
 import { jobRouter } from "./admin/job.js";
-import { studioRouter, detectedJobRouter } from "./admin/studioRoutes.js";
-import { handleChangedetectionWebhook } from "../controller/admin/changedetectionWebhookController.js";
+import { studioRouter } from "./admin/studioRoutes.js";
 import { GetJobCategories } from "../controller/admin/jobCategory.js";
 import {
   GetJobs,
@@ -131,7 +130,14 @@ export function registerRoutes(app) {
     }
   });
 
-  // Admin routes
+  // Admin routes (disable 304 caching so admin always gets real-time data)
+  app.use("/api/admin", (req, res, next) => {
+    res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+    res.setHeader("Pragma", "no-cache");
+    res.setHeader("Expires", "0");
+    next();
+  });
+
   app.get("/api/admin/profile", checkAuthToken, getAdminProfile);
   app.put("/api/admin/profile", checkAuthToken, updateAdminProfile);
   app.use("/api/admin/user", checkAuthToken, userRouter);
@@ -141,8 +147,6 @@ export function registerRoutes(app) {
   app.use("/api/admin/job-category", checkAuthToken, jobCategoryRouter);
   app.use("/api/admin/job", checkAuthToken, jobRouter);
   app.use("/api/admin/studios", checkAuthToken, studioRouter);
-  app.use("/api/admin/detected-jobs", checkAuthToken, detectedJobRouter);
-  app.post("/api/webhooks/changedetection", handleChangedetectionWebhook);
   app.use("/api/admin/channel", checkAuthToken, channelRouter);
   app.use("/api/admin/subchannel", checkAuthToken, subChannelRoutes);
   app.use("/api/admin/mentors", adminMentorRoutes);
