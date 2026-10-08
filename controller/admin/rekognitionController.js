@@ -11,6 +11,7 @@ import NodeCache from "node-cache";
 import { S3Client, GetObjectCommand } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
 import { Categories } from "../../model/categories.js";
+import { aiTelemetryService } from "../../services/aiTelemetryService.js";
 import {
   DEFAULT_DISCIPLINES,
   buildSystemPrompt,
@@ -193,11 +194,27 @@ async function callVisionAPIWithRetry(
 
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
-      return await openai.chat.completions.create({
+      const response = await openai.chat.completions.create({
         model: currentModel,
         messages,
         response_format: responseFormat,
       });
+
+      if (response?.usage) {
+        aiTelemetryService
+          .recordUsage({
+            provider: "openai",
+            model: currentModel,
+            feature: "image_rekognition",
+            promptTokens: response.usage.prompt_tokens || 0,
+            completionTokens: response.usage.completion_tokens || 0,
+            totalTokens: response.usage.total_tokens || 0,
+            status: "success",
+          })
+          .catch(() => {});
+      }
+
+      return response;
     } catch (err) {
       const isRateLimit =
         err.status === 429 ||

@@ -15,6 +15,115 @@ const s3 = new S3Client({
     secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
   },
 });
+
+import mongoose from "mongoose";
+import { Categories } from "../../model/categories.js";
+
+/**
+ * Resolves an array or single value of categories (which may contain ObjectIds,
+ * category names like "Graphic Design", objects {_id, name}, or string representations)
+ * into an array of valid mongoose.Types.ObjectId.
+ */
+export async function sanitizeCategories(rawCategories, allCategoriesCache = null) {
+  if (!rawCategories) return [];
+
+  // Normalize to flat array
+  const list = Array.isArray(rawCategories) ? rawCategories : [rawCategories];
+
+  // If an item itself looks like a serialized array e.g. "['new ObjectId(...)', 'Graphic Design']"
+  const flattened = [];
+  for (const item of list) {
+    if (typeof item === "string" && (item.includes("[") || item.includes("ObjectId("))) {
+      // Extract all 24-hex IDs
+      const hexMatches = item.match(/[a-f\d]{24}/gi);
+      if (hexMatches && hexMatches.length > 0) {
+        hexMatches.forEach((hex) => flattened.push(hex));
+      }
+      // Extract any quotes with text e.g. "Graphic Design"
+      const quotedMatches = item.match(/"([^"]+)"|'([^']+)'/g);
+      if (quotedMatches) {
+        quotedMatches.forEach((q) => {
+          const clean = q.replace(/['"]/g, "").trim();
+          if (
+            clean &&
+            clean.length > 1 &&
+            !clean.includes("ObjectId") &&
+            !/^[a-f\d]{24}$/i.test(clean) &&
+            /^[a-zA-Z0-9\s/& -]+$/.test(clean)
+          ) {
+            flattened.push(clean);
+          }
+        });
+      }
+    } else {
+      flattened.push(item);
+    }
+  }
+
+  // Load active categories from DB if not provided
+  const dbCats = allCategoriesCache || (await Categories.find({}).lean());
+
+  // Build lookup maps
+  const idSet = new Set(dbCats.map((c) => String(c._id)));
+  const nameToIdMap = new Map();
+  for (const c of dbCats) {
+    if (c.name) {
+      nameToIdMap.set(String(c.name).trim().toLowerCase(), c._id);
+    }
+  }
+
+  const resolvedObjectIds = [];
+  const seenIds = new Set();
+
+  for (const entry of flattened) {
+    if (!entry) continue;
+
+    let candidateId = null;
+
+    if (mongoose.Types.ObjectId.isValid(entry) && idSet.has(String(entry))) {
+      candidateId = String(entry);
+    } else if (typeof entry === "object" && entry?._id && mongoose.Types.ObjectId.isValid(entry._id)) {
+      candidateId = String(entry._id);
+    } else if (typeof entry === "string") {
+      const cleanStr = entry.trim();
+      if (/^[a-f\d]{24}$/i.test(cleanStr)) {
+        candidateId = cleanStr;
+      } else {
+        const lowerName = cleanStr.toLowerCase();
+        if (nameToIdMap.has(lowerName)) {
+          candidateId = String(nameToIdMap.get(lowerName));
+        } else if (cleanStr.length > 1 && /^[a-zA-Z0-9\s/& -]+$/.test(cleanStr)) {
+          // If valid category name doesn't exist yet, auto-create it gracefully
+          try {
+            const count = await Categories.countDocuments();
+            const newCat = await Categories.create({ name: cleanStr, position: count });
+            nameToIdMap.set(lowerName, newCat._id);
+            idSet.add(String(newCat._id));
+            candidateId = String(newCat._id);
+          } catch (err) {
+            const fallbackCat = await Categories.findOne({ name: cleanStr });
+            if (fallbackCat) {
+              candidateId = String(fallbackCat._id);
+            }
+          }
+        }
+      }
+    }
+
+    if (candidateId && !seenIds.has(candidateId)) {
+      seenIds.add(candidateId);
+      resolvedObjectIds.push(new mongoose.Types.ObjectId(candidateId));
+    }
+  }
+
+  // If still empty, fallback to the first DB category so required check passes
+  if (resolvedObjectIds.length === 0 && dbCats.length > 0) {
+    resolvedObjectIds.push(new mongoose.Types.ObjectId(dbCats[0]._id));
+  }
+
+  return resolvedObjectIds;
+}
+
 export const AddDiscover = async (req, res) => {
   try {
     const { image, source } = req.body;
@@ -40,37 +149,42 @@ export const AddDiscover = async (req, res) => {
     );
 
     // 🔥 STEP 2: new items prepare karo
-    const newDocs = image.map((item, i) => {
-      if (!item.url || !item.tag || !item.categories || !item.title) {
-        // also tell which item is missing required fields in error
-        if (!item.url) {
-          throw new Error(`Item ${i + 1} missing url`);
+    const dbCats = await Categories.find({}).lean();
+    const newDocs = await Promise.all(
+      image.map(async (item, i) => {
+        if (!item.url || !item.tag || !item.categories || !item.title) {
+          // also tell which item is missing required fields in error
+          if (!item.url) {
+            throw new Error(`Item ${i + 1} missing url`);
+          }
+          if (!item.tag) {
+            throw new Error(`Item ${i + 1} missing tag`);
+          }
+          if (!item.categories) {
+            throw new Error(`Item ${i + 1} missing categories`);
+          }
+          if (!item.title) {
+            throw new Error(`Item ${i + 1} missing title`);
+          }
         }
-        if (!item.tag) {
-          throw new Error(`Item ${i + 1} missing tag`);
-        }
-        if (!item.categories) {
-          throw new Error(`Item ${i + 1} missing categories`);
-        }
-        if (!item.title) {
-          throw new Error(`Item ${i + 1} missing title`);
-        }
-      }
 
-      return {
-        title: item.title,
-        image: item.url,
-        type: item.type || "image",
-        tags: item.tag,
-        categories: item.categories,
-        source: source || "",
-        thumbnail: item.thumbnail || "",
-        uploadAt,
-        index: i, // 👈 always start from 0
-        forShop: item.forShop || false,
-        shopUrl: item.shopUrl || "",
-      };
-    });
+        const safeCategories = await sanitizeCategories(item.categories, dbCats);
+
+        return {
+          title: item.title,
+          image: item.url,
+          type: item.type || "image",
+          tags: item.tag,
+          categories: safeCategories,
+          source: source || "",
+          thumbnail: item.thumbnail || "",
+          uploadAt,
+          index: i, // 👈 always start from 0
+          forShop: item.forShop || false,
+          shopUrl: item.shopUrl || "",
+        };
+      })
+    );
 
     // 🔥 STEP 3: bulk insert
     await Discover.insertMany(newDocs);
@@ -107,6 +221,7 @@ export const AddDiscoverVideo = async (req, res) => {
     );
 
     // 🔥 STEP 2: new docs prepare karo
+    const dbCats = await Categories.find({}).lean();
     const newVideos = await Promise.all(
       image.map(async (vid, i) => {
         if (!vid.url || !vid.tags || !vid.categories || !vid.title) {
@@ -116,6 +231,7 @@ export const AddDiscoverVideo = async (req, res) => {
         }
 
         const resolvedThumb = vid.thumbnail || (await resolveVideoThumbnail(vid.url, sourceType));
+        const safeCategories = await sanitizeCategories(vid.categories, dbCats);
 
         return {
           title: vid.title,
@@ -123,7 +239,7 @@ export const AddDiscoverVideo = async (req, res) => {
           thumbnail: resolvedThumb || "",
           type: "video",
           tags: vid.tags,
-          categories: vid.categories,
+          categories: safeCategories,
           source: source || "",
           sourceType: sourceType || "",
           uploadAt,
@@ -169,28 +285,33 @@ export const AddDiscoverAudio = async (req, res) => {
     );
 
     // 🔥 STEP 2: prepare bulk insert
-    const audioDocs = image.map((audio, i) => {
-      if (!audio.url || !audio.tags || !audio.categories || !audio.title) {
-        throw new Error(
-          `Audio ${i + 1} ka URL, Tags, Categories aur Title required hai`,
-        );
-      }
+    const dbCats = await Categories.find({}).lean();
+    const audioDocs = await Promise.all(
+      image.map(async (audio, i) => {
+        if (!audio.url || !audio.tags || !audio.categories || !audio.title) {
+          throw new Error(
+            `Audio ${i + 1} ka URL, Tags, Categories aur Title required hai`,
+          );
+        }
 
-      return {
-        title: audio.title,
-        image: audio.url, // audio file URL
-        thumbnail: audio.thumbnail || "",
-        type: "mp3",
-        tags: audio.tags,
-        categories: audio.categories,
-        source: source || "",
-        sourceType: sourceType || "",
-        uploadAt,
-        index: i, // 👈 reset per batch
-        forShop: audio.forShop || false,
-        shopUrl: audio.shopUrl || "",
-      };
-    });
+        const safeCategories = await sanitizeCategories(audio.categories, dbCats);
+
+        return {
+          title: audio.title,
+          image: audio.url, // audio file URL
+          thumbnail: audio.thumbnail || "",
+          type: "mp3",
+          tags: audio.tags,
+          categories: safeCategories,
+          source: source || "",
+          sourceType: sourceType || "",
+          uploadAt,
+          index: i, // 👈 reset per batch
+          forShop: audio.forShop || false,
+          shopUrl: audio.shopUrl || "",
+        };
+      })
+    );
 
     // 🔥 STEP 3: fast insert
     await Discover.insertMany(audioDocs);
@@ -236,6 +357,9 @@ export const AddDiscoverManual = async (req, res) => {
     );
 
     // 🔥 STEP 2: prepare bulk insert
+    const dbCats = await Categories.find({}).lean();
+    const safeCategories = await sanitizeCategories(categories, dbCats);
+
     const docs = image.map((img, i) => {
       if (!img.url || !img.type) {
         throw new Error(`Image ${i + 1} missing required fields`);
@@ -248,7 +372,7 @@ export const AddDiscoverManual = async (req, res) => {
         tags: img.tag || [],
         source: source || "",
         sourceType: sourceType || "",
-        categories,
+        categories: safeCategories,
         uploadAt,
         index: i, // 👈 reset per batch
         forShop: img.forShop || false,
@@ -365,13 +489,14 @@ export const updateDiscover = async (req, res) => {
   const { title, image, tags, categories, forShop, shopUrl } = req.body;
 
   try {
+    const safeCategories = categories ? await sanitizeCategories(categories) : undefined;
     const updatedDiscover = await Discover.findByIdAndUpdate(
       reqId,
       {
         ...(title && { title }),
         ...(image && { image }),
         ...(tags && { tags }),
-        ...(categories && { categories }),
+        ...(safeCategories && { categories: safeCategories }),
         ...(forShop !== undefined && { forShop }),
         ...(shopUrl !== undefined && { shopUrl }),
       },

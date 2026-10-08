@@ -128,6 +128,8 @@ class AtsDetector {
           item.departments && item.departments.length > 0 ? item.departments[0].name : "";
         const location = item.location?.name || "";
         const workplaceType = this.inferWorkplaceType(location, item.title);
+        const postedDateRaw = item.updated_at || item.created_at || null;
+        const postedAt = postedDateRaw ? new Date(postedDateRaw) : null;
 
         return {
           jobTitle: item.title?.trim() || "Open Role",
@@ -139,6 +141,7 @@ class AtsDetector {
           contractType: "Full-time",
           department,
           overview: this.cleanOverview(item.content || ""),
+          postedAt: postedAt && !isNaN(postedAt.getTime()) ? postedAt : null,
           source: "greenhouse",
           sourceId: String(item.id || ""),
         };
@@ -164,6 +167,8 @@ class AtsDetector {
         const workplaceType =
           item.categories?.workplaceType || this.inferWorkplaceType(location, item.text);
         const department = item.categories?.department || item.categories?.team || "";
+        const postedDateRaw = item.createdAt || item.updatedAt || null;
+        const postedAt = postedDateRaw ? new Date(postedDateRaw) : null;
 
         return {
           jobTitle: item.text?.trim() || "Open Role",
@@ -176,6 +181,7 @@ class AtsDetector {
           department,
           salaryRange: item.salaryDescription || "",
           overview: this.cleanOverview(item.description || item.descriptionPlain || ""),
+          postedAt: postedAt && !isNaN(postedAt.getTime()) ? postedAt : null,
           source: "lever",
           sourceId: String(item.id || ""),
         };
@@ -208,6 +214,8 @@ class AtsDetector {
         const workplaceType = item.isRemote
           ? "Remote"
           : this.inferWorkplaceType(location, item.title);
+        const postedDateRaw = item.publishedAt || item.createdAt || null;
+        const postedAt = postedDateRaw ? new Date(postedDateRaw) : null;
 
         return {
           jobTitle: item.title?.trim() || "Open Role",
@@ -219,6 +227,7 @@ class AtsDetector {
           contractType: this.normalizeContractType(item.employmentType),
           department: item.department || "",
           overview: this.cleanOverview(item.descriptionHtml || item.descriptionPlain || ""),
+          postedAt: postedAt && !isNaN(postedAt.getTime()) ? postedAt : null,
           source: "ashby",
           sourceId: String(item.id || ""),
         };

@@ -11,6 +11,7 @@ import {
   getScraperStats,
   deleteStudio,
   clearAllStudios,
+  getStudioJobs,
 } from "../../controller/admin/studioController.js";
 
 const upload = multer({
@@ -34,6 +35,7 @@ studioRouter.get("/", getStudios);
 studioRouter.post("/", createStudio);
 studioRouter.delete("/", clearAllStudios);
 studioRouter.get("/:id", getStudioById);
+studioRouter.get("/:id/jobs", getStudioJobs);
 studioRouter.put("/:id", updateStudio);
 studioRouter.post("/:id/scrape", scrapeSingleStudio);
 studioRouter.delete("/:id", deleteStudio);

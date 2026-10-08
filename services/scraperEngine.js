@@ -528,6 +528,7 @@ class ScraperEngine {
       descriptionSelector,
       imageSelector,
       companyNameSelector,
+      datePostedSelector,
     } = selectors;
 
     let containers;
@@ -677,6 +678,24 @@ class ScraperEngine {
 
       const deduplicatedVisualAssets = Array.from(new Set(visualAssets.filter(Boolean)));
 
+      // 11. Posted Date extraction & parsing
+      let postedDateText = "";
+      if (datePostedSelector) {
+        try {
+          const $dateEl = $el.find(datePostedSelector).first();
+          postedDateText = $dateEl.attr("datetime") || $dateEl.text().trim();
+        } catch {
+          postedDateText = "";
+        }
+      }
+      if (!postedDateText) {
+        const $time = $el.find("time").first();
+        if ($time.length) {
+          postedDateText = $time.attr("datetime") || $time.text().trim();
+        }
+      }
+      const postedAt = this.parsePostedDate(postedDateText);
+
       jobs.push({
         jobTitle: title,
         companyName,
@@ -689,10 +708,64 @@ class ScraperEngine {
         salaryRange,
         overview,
         visualAssets: deduplicatedVisualAssets,
+        postedAt,
       });
     });
 
     return jobs;
+  }
+
+  /**
+   * Helper: Parse various date representations (ISO, formatted strings, relative strings like '3 days ago')
+   */
+  parsePostedDate(input) {
+    if (!input || typeof input !== "string") return null;
+    const clean = input.trim();
+    if (!clean) return null;
+
+    // 1. Direct JS Date parse (handles ISO "2024-03-01", standard date strings)
+    const directDate = new Date(clean);
+    if (
+      !isNaN(directDate.getTime()) &&
+      directDate.getFullYear() > 2000 &&
+      directDate.getFullYear() <= new Date().getFullYear() + 1
+    ) {
+      return directDate;
+    }
+
+    // 2. Relative times: "3 days ago", "posted 2 weeks ago", "1 month ago", "today", "yesterday"
+    const lower = clean.toLowerCase();
+    const now = Date.now();
+
+    if (lower.includes("just now") || lower.includes("today") || lower.includes("moment ago")) {
+      return new Date(now);
+    }
+    if (lower.includes("yesterday")) {
+      return new Date(now - 24 * 60 * 60 * 1000);
+    }
+
+    const relMatch = lower.match(/(\d+)\+?\s*(minute|hour|day|week|month|year)s?\s*ago/);
+    if (relMatch) {
+      const num = parseInt(relMatch[1], 10);
+      const unit = relMatch[2];
+      let ms = 0;
+      if (unit === "minute") ms = num * 60 * 1000;
+      else if (unit === "hour") ms = num * 60 * 60 * 1000;
+      else if (unit === "day") ms = num * 24 * 60 * 60 * 1000;
+      else if (unit === "week") ms = num * 7 * 24 * 60 * 60 * 1000;
+      else if (unit === "month") ms = num * 30 * 24 * 60 * 60 * 1000;
+      else if (unit === "year") ms = num * 365 * 24 * 60 * 60 * 1000;
+
+      if (ms > 0) {
+        return new Date(now - ms);
+      }
+    }
+
+    if (lower.includes("30+ days ago") || lower.includes("30+ days")) {
+      return new Date(now - 35 * 24 * 60 * 60 * 1000);
+    }
+
+    return null;
   }
 
   /**
@@ -711,10 +784,31 @@ class ScraperEngine {
     let savedCount = 0;
     let skippedCount = 0;
 
+    // Cutoff age: skip old jobs if posted date exceeds maxJobAgeDays (default 30 days)
+    const maxJobAgeDays =
+      studio.scrapingConfig?.maxJobAgeDays !== undefined
+        ? studio.scrapingConfig.maxJobAgeDays
+        : 30;
+
     for (const jobItem of rawJobs) {
       if (!jobItem.jobTitle) {
         skippedCount++;
         continue;
+      }
+
+      // Check posted date cutoff (Skip old jobs!)
+      if (jobItem.postedAt && maxJobAgeDays > 0) {
+        const postedTime = new Date(jobItem.postedAt).getTime();
+        const cutoffTime = Date.now() - maxJobAgeDays * 24 * 60 * 60 * 1000;
+        if (postedTime < cutoffTime) {
+          logger.info(
+            `Skipping old job '${jobItem.jobTitle}' for ${studio.name} posted on ${
+              new Date(jobItem.postedAt).toISOString().split("T")[0]
+            } (> ${maxJobAgeDays} days cutoff)`
+          );
+          skippedCount++;
+          continue;
+        }
       }
 
       // 2. Match with JobCategory (fallback to default or null, never drop valid jobs!)
@@ -755,6 +849,7 @@ class ScraperEngine {
           : (studio.visualAssets || []);
 
       const jobData = {
+        studio: studio._id,
         companyName: jobItem.companyName || studio.name,
         aboutCompany: atsDetector.cleanOverview(studio.aboutCompany || ""),
         website: studio.website || studio.careersUrl || "",
@@ -768,6 +863,7 @@ class ScraperEngine {
         salaryRange: jobItem.salaryRange || "",
         overview: atsDetector.cleanOverview(jobItem.overview || ""),
         visualAssets,
+        postedAt: jobItem.postedAt ? new Date(jobItem.postedAt) : null,
         instagram: studio.instagram || "",
         linkedin: studio.linkedin || "",
         companySize: studio.companySize || "",

@@ -407,3 +407,78 @@ export const deleteStudio = async (req, res) => {
   }
 };
 
+/**
+ * Get jobs for a specific studio (by ID or studio name fallback)
+ * GET /api/admin/studios/:id/jobs
+ */
+export const getStudioJobs = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, page = 1, limit = 50 } = req.query;
+
+    const studio = await Studio.findById(id);
+    if (!studio) {
+      return res.status(404).json({ success: false, message: "Studio not found" });
+    }
+
+    const query = {
+      $or: [
+        { studio: id },
+        { companyName: studio.name },
+      ],
+    };
+
+    if (status && status !== "all") {
+      query.status = status;
+    }
+
+    const pageNum = Math.max(1, parseInt(page, 10));
+    const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [jobs, total, pendingCount, activeCount, rejectedCount] = await Promise.all([
+      Job.find(query)
+        .populate("jobCategory", "name")
+        .populate("jobCategories", "name")
+        .sort({ postedAt: -1, createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Job.countDocuments(query),
+      Job.countDocuments({ ...query, status: "pending" }),
+      Job.countDocuments({ ...query, status: "active" }),
+      Job.countDocuments({ ...query, status: "rejected" }),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      studio: {
+        _id: studio._id,
+        name: studio.name,
+        logo: studio.logo,
+        favicon: studio.favicon,
+        careersUrl: studio.careersUrl,
+        website: studio.website,
+        atsType: studio.atsType,
+      },
+      counts: {
+        total,
+        pending: pendingCount,
+        active: activeCount,
+        rejected: rejectedCount,
+      },
+      data: jobs,
+      pagination: {
+        total,
+        page: pageNum,
+        totalPages: Math.ceil(total / limitNum),
+        limit: limitNum,
+      },
+    });
+  } catch (error) {
+    logger.error("Error fetching jobs for studio", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+

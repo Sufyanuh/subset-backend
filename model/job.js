@@ -3,6 +3,12 @@ import { Schema, model } from "mongoose";
 const jobSchema = new Schema(
   {
     // 01 -> Studio & Company Details
+    studio: {
+      type: Schema.Types.ObjectId,
+      ref: "studio",
+      default: null,
+      index: true,
+    },
     companyName: {
       type: String,
       required: true,
@@ -102,6 +108,11 @@ const jobSchema = new Schema(
     },
 
     // Metadata & Status
+    postedAt: {
+      type: Date,
+      default: null,
+      index: true,
+    },
     status: {
       type: String,
       enum: ["active", "pending", "rejected", "draft", "archived", "closed"],

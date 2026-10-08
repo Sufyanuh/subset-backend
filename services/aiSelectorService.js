@@ -2,6 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { domCleaner } from "./domCleaner.js";
+import { aiTelemetryService } from "./aiTelemetryService.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -74,19 +75,19 @@ class AiSelectorService {
       // 3. Attempt discovery via Gemini Flash (primary) with automatic OpenAI fallback
       if (this.gemini) {
         try {
-          rawResult = await this.callGemini(prompt);
+          rawResult = await this.callGemini(prompt, context);
         } catch (geminiError) {
           logger.warn(
             `Gemini API discovery failed (${geminiError.message}). Falling back to OpenAI...`
           );
           if (this.openai) {
-            rawResult = await this.callOpenAI(prompt);
+            rawResult = await this.callOpenAI(prompt, context);
           } else {
             throw geminiError;
           }
         }
       } else if (this.openai) {
-        rawResult = await this.callOpenAI(prompt);
+        rawResult = await this.callOpenAI(prompt, context);
       }
 
       if (!rawResult) {
@@ -216,6 +217,11 @@ class AiSelectorService {
               type: "string",
               description: "CSS selector relative to jobContainer for company name if multi-studio board, or ''",
             },
+            datePostedSelector: {
+              type: "string",
+              description:
+                "CSS selector relative to jobContainer for posted date/time (e.g. 'time', '.date', '.posted-at', 'span.time-ago'), or '' if absent",
+            },
             confidenceScore: {
               type: "number",
               description: "Confidence from 0.0 to 1.0",
@@ -230,6 +236,22 @@ class AiSelectorService {
       },
     });
 
+    const usage = response.usageMetadata || {};
+    const promptTokens = usage.promptTokenCount || 0;
+    const completionTokens = usage.candidatesTokenCount || 0;
+    const totalTokens = usage.totalTokenCount || promptTokens + completionTokens;
+
+    await aiTelemetryService.recordUsage({
+      provider: "gemini",
+      model: modelName,
+      feature: "scraper_discovery",
+      studioName: context.studioName || "",
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      status: "success",
+    });
+
     const text = response.text;
     return text ? JSON.parse(text) : null;
   }
@@ -237,14 +259,15 @@ class AiSelectorService {
   /**
    * Fallback via OpenAI
    */
-  async callOpenAI(prompt) {
+  async callOpenAI(prompt, context = {}) {
+    const modelName = "gpt-4o-mini";
     const completion = await this.openai.chat.completions.create({
-      model: "gpt-4o-mini",
+      model: modelName,
       messages: [
         {
           role: "system",
           content:
-            "You are an expert web scraping architect. Analyze cleaned HTML and return strictly valid CSS Selectors matching job schema as JSON.",
+            "You are an expert web scraping architect. Analyze cleaned HTML and return strictly valid CSS Selectors matching job schema (including datePostedSelector if available) as JSON.",
         },
         {
           role: "user",
@@ -253,6 +276,22 @@ class AiSelectorService {
       ],
       response_format: { type: "json_object" },
       temperature: 0.1,
+    });
+
+    const usage = completion.usage || {};
+    const promptTokens = usage.prompt_tokens || 0;
+    const completionTokens = usage.completion_tokens || 0;
+    const totalTokens = usage.total_tokens || promptTokens + completionTokens;
+
+    await aiTelemetryService.recordUsage({
+      provider: "openai",
+      model: modelName,
+      feature: "scraper_discovery",
+      studioName: context.studioName || "",
+      promptTokens,
+      completionTokens,
+      totalTokens,
+      status: "success",
     });
 
     const content = completion.choices[0]?.message?.content;
@@ -269,11 +308,12 @@ Your goal is to extract valid, robust CSS selectors to scrape job listings using
 
 IMPORTANT REQUIREMENTS:
 1. 'jobContainer' must match EACH single job listing element (e.g. each row, card, or list item). It should match MULTIPLE elements when multiple jobs exist. Do NOT select the outer wrapper/list itself.
-2. All field selectors ('titleSelector', 'locationSelector', 'applyUrlSelector', 'salarySelector', 'departmentSelector', 'workplaceTypeSelector', 'contractTypeSelector', 'descriptionSelector', 'imageSelector') must be RELATIVE to 'jobContainer' (e.g., container.find(titleSelector)).
+2. All field selectors ('titleSelector', 'locationSelector', 'applyUrlSelector', 'salarySelector', 'departmentSelector', 'workplaceTypeSelector', 'contractTypeSelector', 'descriptionSelector', 'imageSelector', 'datePostedSelector') must be RELATIVE to 'jobContainer' (e.g., container.find(titleSelector)).
 3. If 'jobContainer' itself is an <a> tag linking to the job, set 'applyUrlSelector' to "" (empty string).
 4. If the job listing has a logo or image element (e.g. <img> or element with style/src), provide 'imageSelector'.
-5. Prefer resilient, clean selectors (e.g. tag + class like 'li.job-listing', 'h3.title') rather than fragile dynamic hash classes or deeply nested pseudo-selectors.
-6. If the page clearly has no job openings (e.g. says "No current openings", "Check back later", or empty careers section), set "hasJobs": false.
+5. If the listing displays when the job was posted (e.g. <time>, 'span.date', 'Posted 3 days ago'), provide 'datePostedSelector'.
+6. Prefer resilient, clean selectors (e.g. tag + class like 'li.job-listing', 'h3.title') rather than fragile dynamic hash classes or deeply nested pseudo-selectors.
+7. If the page clearly has no job openings (e.g. says "No current openings", "Check back later", or empty careers section), set "hasJobs": false.
 
 Cleaned HTML Snippet:
 \`\`\`html

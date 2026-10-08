@@ -47,6 +47,7 @@ import { spotlightRouter } from "./admin/spotlight.js";
 import { jobCategoryRouter } from "./admin/jobCategory.js";
 import { jobRouter } from "./admin/job.js";
 import { studioRouter } from "./admin/studioRoutes.js";
+import { aiRouter } from "./admin/aiRoutes.js";
 import { dashboardRouter } from "./admin/dashboardRoutes.js";
 import { GetJobCategories } from "../controller/admin/jobCategory.js";
 import {
@@ -149,6 +150,7 @@ export function registerRoutes(app) {
   app.use("/api/admin/job-category", checkAuthToken, jobCategoryRouter);
   app.use("/api/admin/job", checkAuthToken, jobRouter);
   app.use("/api/admin/studios", checkAuthToken, studioRouter);
+  app.use("/api/admin/ai", checkAuthToken, aiRouter);
   app.use("/api/admin/channel", checkAuthToken, channelRouter);
   app.use("/api/admin/subchannel", checkAuthToken, subChannelRoutes);
   app.use("/api/admin/mentors", adminMentorRoutes);

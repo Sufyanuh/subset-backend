@@ -57,6 +57,11 @@ const selectorSchema = new Schema(
       default: "",
       trim: true,
     },
+    datePostedSelector: {
+      type: String,
+      default: "",
+      trim: true,
+    },
   },
   { _id: false }
 );
@@ -99,6 +104,10 @@ const scrapingConfigSchema = new Schema(
     lastScrapedJobCount: {
       type: Number,
       default: 0,
+    },
+    maxJobAgeDays: {
+      type: Number,
+      default: 30,
     },
     lastError: {
       type: String,

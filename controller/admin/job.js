@@ -95,12 +95,17 @@ export const GetJobs = async (req, res) => {
       location,
       status,
       spotLight,
+      studio,
       sort,
       page,
       limit,
     } = req.query;
 
     const filter = {};
+
+    if (studio && studio !== "All") {
+      filter.studio = studio;
+    }
 
     if (search && search.trim()) {
       const searchRegex = { $regex: search.trim(), $options: "i" };
@@ -171,15 +176,16 @@ export const GetJobs = async (req, res) => {
       filter.spotLight = spotLight === "true" || spotLight === true;
     }
 
-    let sortOption = { createdAt: -1 };
+    let sortOption = { postedAt: -1, createdAt: -1 };
     if (sort === "oldest") {
-      sortOption = { createdAt: 1 };
+      sortOption = { postedAt: 1, createdAt: 1 };
     }
 
     const pageNum = parseInt(page, 10);
     const limitNum = parseInt(limit, 10);
 
     let query = Job.find(filter)
+      .populate("studio", "name logo favicon careersUrl website")
       .populate("jobCategory", "name position")
       .populate("jobCategories", "name position")
       .populate("postedBy", "fullName firstName lastName username email avatar profilePicture")
