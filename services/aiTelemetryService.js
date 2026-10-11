@@ -90,7 +90,7 @@ class AiTelemetryService {
   }
 
   /**
-   * Get complete telemetry stats, keys status, quota and recent calls
+   * Get complete telemetry stats: Keys status, separate usage for Gemini & OpenAI, and recent calls
    */
   async getTelemetryStats() {
     // 1. Inspect configured keys from process.env
@@ -98,36 +98,31 @@ class AiTelemetryService {
       process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
     const openaiRaw = process.env.OPENAI_API_KEY || "";
 
-    const keysConfig = [
-      {
-        provider: "Google Gemini",
-        code: "gemini",
-        active: Boolean(geminiRaw && geminiRaw !== "your_key_here"),
-        maskedKey: this.maskApiKey(geminiRaw),
-        primaryModel: "gemini-2.5-flash",
-        description: "Primary fast model for Selector Discovery & SPA extraction",
-      },
-      {
-        provider: "OpenAI",
-        code: "openai",
-        active: Boolean(openaiRaw && openaiRaw !== "your_key_here"),
-        maskedKey: this.maskApiKey(openaiRaw),
-        primaryModel: "gpt-4o-mini",
-        description: "Automatic fallback model & AWS image analysis",
-      },
-    ];
+    const geminiConfig = {
+      provider: "Google Gemini",
+      code: "gemini",
+      active: Boolean(geminiRaw && geminiRaw !== "your_key_here"),
+      maskedKey: this.maskApiKey(geminiRaw),
+      primaryModel: "gemini-2.5-flash",
+      role: "Job Scraper Selector Discovery",
+      today: { tokens: 0, cost: 0, calls: 0 },
+      thisMonth: { tokens: 0, cost: 0, calls: 0 },
+      allTime: { tokens: 0, cost: 0, calls: 0 },
+    };
 
-    // 2. Fetch or initialize settings
-    let settings = await AiSettings.findOne();
-    if (!settings) {
-      settings = await AiSettings.create({
-        monthlyTokenQuota: 1000000,
-        monthlyBudgetUsd: 10.0,
-        alertThresholdPercent: 80,
-      });
-    }
+    const openaiConfig = {
+      provider: "OpenAI",
+      code: "openai",
+      active: Boolean(openaiRaw && openaiRaw !== "your_key_here"),
+      maskedKey: this.maskApiKey(openaiRaw),
+      primaryModel: process.env.OPENAI_VISION_MODEL || "gpt-5.6-luna",
+      role: "Creative Media & Rekognition Tagging",
+      today: { tokens: 0, cost: 0, calls: 0 },
+      thisMonth: { tokens: 0, cost: 0, calls: 0 },
+      allTime: { tokens: 0, cost: 0, calls: 0 },
+    };
 
-    // 3. Date boundaries
+    // 2. Date boundaries
     const now = new Date();
     const startOfToday = new Date(
       now.getFullYear(),
@@ -136,141 +131,108 @@ class AiTelemetryService {
     );
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
 
-    // 4. Aggregations
-    const [
-      todayAgg,
-      monthAgg,
-      allTimeAgg,
-      providerAgg,
-      recentLogs,
-    ] = await Promise.all([
-      // Today
-      AiUsage.aggregate([
-        { $match: { createdAt: { $gte: startOfToday } } },
-        {
-          $group: {
-            _id: null,
-            totalTokens: { $sum: "$totalTokens" },
-            totalCost: { $sum: "$estimatedCostUsd" },
-            calls: { $sum: 1 },
+    // 3. Separate Aggregations by provider
+    const [todayByProvider, monthByProvider, allTimeByProvider, recentLogs] =
+      await Promise.all([
+        // Today by provider
+        AiUsage.aggregate([
+          { $match: { createdAt: { $gte: startOfToday } } },
+          {
+            $group: {
+              _id: "$provider",
+              totalTokens: { $sum: "$totalTokens" },
+              totalCost: { $sum: "$estimatedCostUsd" },
+              calls: { $sum: 1 },
+            },
           },
-        },
-      ]),
-      // This Month
-      AiUsage.aggregate([
-        { $match: { createdAt: { $gte: startOfMonth } } },
-        {
-          $group: {
-            _id: null,
-            totalTokens: { $sum: "$totalTokens" },
-            promptTokens: { $sum: "$promptTokens" },
-            completionTokens: { $sum: "$completionTokens" },
-            totalCost: { $sum: "$estimatedCostUsd" },
-            calls: { $sum: 1 },
+        ]),
+        // This Month by provider
+        AiUsage.aggregate([
+          { $match: { createdAt: { $gte: startOfMonth } } },
+          {
+            $group: {
+              _id: "$provider",
+              totalTokens: { $sum: "$totalTokens" },
+              totalCost: { $sum: "$estimatedCostUsd" },
+              calls: { $sum: 1 },
+            },
           },
-        },
-      ]),
-      // All Time
-      AiUsage.aggregate([
-        {
-          $group: {
-            _id: null,
-            totalTokens: { $sum: "$totalTokens" },
-            totalCost: { $sum: "$estimatedCostUsd" },
-            calls: { $sum: 1 },
+        ]),
+        // All Time by provider
+        AiUsage.aggregate([
+          {
+            $group: {
+              _id: "$provider",
+              totalTokens: { $sum: "$totalTokens" },
+              totalCost: { $sum: "$estimatedCostUsd" },
+              calls: { $sum: 1 },
+            },
           },
-        },
-      ]),
-      // By Provider (This Month)
-      AiUsage.aggregate([
-        { $match: { createdAt: { $gte: startOfMonth } } },
-        {
-          $group: {
-            _id: "$provider",
-            totalTokens: { $sum: "$totalTokens" },
-            totalCost: { $sum: "$estimatedCostUsd" },
-            calls: { $sum: 1 },
-          },
-        },
-      ]),
-      // Recent 20 calls
-      AiUsage.find({})
-        .sort({ createdAt: -1 })
-        .limit(20)
-        .lean(),
-    ]);
+        ]),
+        // Recent 30 calls
+        AiUsage.find({})
+          .sort({ createdAt: -1 })
+          .limit(30)
+          .lean(),
+      ]);
 
-    const tokensToday = todayAgg[0]?.totalTokens || 0;
-    const costToday = parseFloat((todayAgg[0]?.totalCost || 0).toFixed(4));
-    const callsToday = todayAgg[0]?.calls || 0;
-
-    const tokensThisMonth = monthAgg[0]?.totalTokens || 0;
-    const promptTokensThisMonth = monthAgg[0]?.promptTokens || 0;
-    const completionTokensThisMonth = monthAgg[0]?.completionTokens || 0;
-    const costThisMonth = parseFloat((monthAgg[0]?.totalCost || 0).toFixed(4));
-    const callsThisMonth = monthAgg[0]?.calls || 0;
-
-    const tokensAllTime = allTimeAgg[0]?.totalTokens || 0;
-    const costAllTime = parseFloat((allTimeAgg[0]?.totalCost || 0).toFixed(4));
-    const callsAllTime = allTimeAgg[0]?.calls || 0;
-
-    // Quota calculations
-    const quota = settings.monthlyTokenQuota || 1000000;
-    const remainingTokens = Math.max(0, quota - tokensThisMonth);
-    const percentageUsed = Math.min(
-      100,
-      parseFloat(((tokensThisMonth / quota) * 100).toFixed(1))
-    );
-
-    const budget = settings.monthlyBudgetUsd || 10.0;
-    const remainingBudgetUsd = Math.max(
-      0,
-      parseFloat((budget - costThisMonth).toFixed(4))
-    );
-
-    // Breakdown map
-    const breakdown = {
-      gemini: { tokens: 0, cost: 0, calls: 0 },
-      openai: { tokens: 0, cost: 0, calls: 0 },
-    };
-    for (const item of providerAgg) {
-      if (item._id && breakdown[item._id]) {
-        breakdown[item._id] = {
-          tokens: item.totalTokens,
+    // Map today's stats
+    for (const item of todayByProvider) {
+      if (item._id === "gemini") {
+        geminiConfig.today = {
+          tokens: item.totalTokens || 0,
           cost: parseFloat((item.totalCost || 0).toFixed(4)),
-          calls: item.calls,
+          calls: item.calls || 0,
+        };
+      } else if (item._id === "openai") {
+        openaiConfig.today = {
+          tokens: item.totalTokens || 0,
+          cost: parseFloat((item.totalCost || 0).toFixed(4)),
+          calls: item.calls || 0,
+        };
+      }
+    }
+
+    // Map this month's stats
+    for (const item of monthByProvider) {
+      if (item._id === "gemini") {
+        geminiConfig.thisMonth = {
+          tokens: item.totalTokens || 0,
+          cost: parseFloat((item.totalCost || 0).toFixed(4)),
+          calls: item.calls || 0,
+        };
+      } else if (item._id === "openai") {
+        openaiConfig.thisMonth = {
+          tokens: item.totalTokens || 0,
+          cost: parseFloat((item.totalCost || 0).toFixed(4)),
+          calls: item.calls || 0,
+        };
+      }
+    }
+
+    // Map all-time stats
+    for (const item of allTimeByProvider) {
+      if (item._id === "gemini") {
+        geminiConfig.allTime = {
+          tokens: item.totalTokens || 0,
+          cost: parseFloat((item.totalCost || 0).toFixed(4)),
+          calls: item.calls || 0,
+        };
+      } else if (item._id === "openai") {
+        openaiConfig.allTime = {
+          tokens: item.totalTokens || 0,
+          cost: parseFloat((item.totalCost || 0).toFixed(4)),
+          calls: item.calls || 0,
         };
       }
     }
 
     return {
-      keys: keysConfig,
-      quota: {
-        monthlyTokenQuota: quota,
-        monthlyBudgetUsd: budget,
-        tokensUsedThisMonth: tokensThisMonth,
-        promptTokensThisMonth,
-        completionTokensThisMonth,
-        remainingTokens,
-        percentageUsed,
-        costThisMonth,
-        remainingBudgetUsd,
-        alertThresholdPercent: settings.alertThresholdPercent || 80,
+      providers: {
+        gemini: geminiConfig,
+        openai: openaiConfig,
       },
-      summary: {
-        today: { tokens: tokensToday, cost: costToday, calls: callsToday },
-        thisMonth: {
-          tokens: tokensThisMonth,
-          cost: costThisMonth,
-          calls: callsThisMonth,
-        },
-        allTime: {
-          tokens: tokensAllTime,
-          cost: costAllTime,
-          calls: callsAllTime,
-        },
-      },
-      breakdown,
+      keys: [geminiConfig, openaiConfig],
       recentLogs,
     };
   }

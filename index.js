@@ -8,6 +8,7 @@ import {
   setupDailyEmailCron,
   triggerDailyEmailsNow,
 } from "./cron/dailyEmailJob.js";
+import { setupStudioScraperCron } from "./cron/studioScraperCron.js";
 import { registerRoutes } from "./routes/register.js";
 import webhookRoutes from "./routes/webhookRoutes.js";
 import seedAdmin from "./seeder/admin.js";
@@ -219,6 +220,9 @@ try {
   // Daily email cron
   setupDailyEmailCron();
   logger.info("📅 Daily email cron scheduled");
+
+  // Automated 2-Tier Studio Scraper cron (every 15 mins)
+  setupStudioScraperCron();
   
   // Log cleanup cron (every Sunday at 2 AM)
   cron.schedule("0 2 * * 0", () => {

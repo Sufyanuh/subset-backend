@@ -1,5 +1,4 @@
 import { GoogleGenAI } from "@google/genai";
-import OpenAI from "openai";
 import * as cheerio from "cheerio";
 import { domCleaner } from "./domCleaner.js";
 import { aiTelemetryService } from "./aiTelemetryService.js";
@@ -7,27 +6,27 @@ import { logger } from "../utils/logger.js";
 
 /**
  * AI Selector Discovery Service
- * Analyzes clean HTML using Google Gemini Flash (with OpenAI fallback)
+ * Analyzes clean HTML using Google Gemini (gemini-3.8-flash)
  * to discover robust CSS selectors for job listings conforming to Job model fields.
  */
 class AiSelectorService {
   _initClients() {
-    const currentGeminiKey = process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
-    const currentOpenaiKey = process.env.OPENAI_API_KEY || "";
+    const currentGeminiKey =
+      process.env.GEMINI_API_KEY || process.env.GOOGLE_API_KEY || "";
 
     if (!this.gemini && currentGeminiKey) {
       this.geminiApiKey = currentGeminiKey;
-      this.gemini = new GoogleGenAI({ apiKey: currentGeminiKey });
-    }
-    if (!this.openai && currentOpenaiKey) {
-      this.openaiApiKey = currentOpenaiKey;
-      this.openai = new OpenAI({ apiKey: currentOpenaiKey });
+      try {
+        this.gemini = new GoogleGenAI({ apiKey: currentGeminiKey });
+      } catch (e) {
+        logger.warn("Failed to initialize GoogleGenAI client:", e.message);
+      }
     }
   }
 
   isConfigured() {
     this._initClients();
-    return Boolean(this.gemini || this.openai);
+    return Boolean(this.gemini);
   }
 
   /**
@@ -44,10 +43,10 @@ class AiSelectorService {
     }
 
     if (!this.isConfigured()) {
-      logger.warn("Neither GEMINI_API_KEY nor OPENAI_API_KEY configured for selector discovery");
+      logger.warn("GEMINI_API_KEY is not configured for selector discovery");
       return {
         success: false,
-        error: "AI selector service not configured (missing GEMINI_API_KEY or OPENAI_API_KEY)",
+        error: "AI selector service not configured (missing GEMINI_API_KEY)",
       };
     }
 
@@ -57,7 +56,8 @@ class AiSelectorService {
     if (!cleanedDom || cleanedDom.length < 50) {
       return {
         success: false,
-        error: "Cleaned DOM is empty or too short. Page may require JavaScript/Puppeteer rendering.",
+        error:
+          "Cleaned DOM is empty or too short. Page may require JavaScript/Puppeteer rendering.",
         requiresPuppeteer: true,
       };
     }
@@ -70,31 +70,20 @@ class AiSelectorService {
     });
 
     try {
-      let rawResult = null;
-
-      // 3. Attempt discovery via Gemini Flash (primary) with automatic OpenAI fallback
-      if (this.gemini) {
-        try {
-          rawResult = await this.callGemini(prompt, context);
-        } catch (geminiError) {
-          logger.warn(
-            `Gemini API discovery failed (${geminiError.message}). Falling back to OpenAI...`
-          );
-          if (this.openai) {
-            rawResult = await this.callOpenAI(prompt, context);
-          } else {
-            throw geminiError;
-          }
-        }
-      } else if (this.openai) {
-        rawResult = await this.callOpenAI(prompt, context);
-      }
+      // 3. Attempt discovery via Gemini Flash
+      const rawResult = await this.callGemini(prompt, context);
 
       if (!rawResult) {
-        return { success: false, error: "AI model returned empty response" };
+        return {
+          success: false,
+          error: "Gemini AI model returned empty response",
+        };
       }
 
-      const parsed = typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult;
+      const parsed =
+        typeof rawResult === "string" ? JSON.parse(rawResult) : rawResult;
+
+
 
       if (!parsed.hasJobs || !parsed.jobContainer) {
         return {
@@ -153,10 +142,10 @@ class AiSelectorService {
   }
 
   /**
-   * Call Google Gemini Flash with structured schema
+   * Call Google Gemini with structured schema
    */
-  async callGemini(prompt) {
-    const modelName = "gemini-2.5-flash";
+  async callGemini(prompt, context = {}) {
+    const modelName = process.env.GEMINI_MODEL || "gemini-3.8-flash";
     const response = await this.gemini.models.generateContent({
       model: modelName,
       contents: prompt,
@@ -187,7 +176,7 @@ class AiSelectorService {
             applyUrlSelector: {
               type: "string",
               description:
-                "CSS selector relative to jobContainer for apply/detail link (e.g. 'a', 'a.btn-apply'). If container itself is <a>, output ''",
+                "CSS selector relative to jobContainer for apply/detail link (e.g. 'a', 'a.btn-apply'). If container itself is an <a>, output ''",
             },
             salarySelector: {
               type: "string",
@@ -256,47 +245,7 @@ class AiSelectorService {
     return text ? JSON.parse(text) : null;
   }
 
-  /**
-   * Fallback via OpenAI
-   */
-  async callOpenAI(prompt, context = {}) {
-    const modelName = "gpt-4o-mini";
-    const completion = await this.openai.chat.completions.create({
-      model: modelName,
-      messages: [
-        {
-          role: "system",
-          content:
-            "You are an expert web scraping architect. Analyze cleaned HTML and return strictly valid CSS Selectors matching job schema (including datePostedSelector if available) as JSON.",
-        },
-        {
-          role: "user",
-          content: prompt,
-        },
-      ],
-      response_format: { type: "json_object" },
-      temperature: 0.1,
-    });
 
-    const usage = completion.usage || {};
-    const promptTokens = usage.prompt_tokens || 0;
-    const completionTokens = usage.completion_tokens || 0;
-    const totalTokens = usage.total_tokens || promptTokens + completionTokens;
-
-    await aiTelemetryService.recordUsage({
-      provider: "openai",
-      model: modelName,
-      feature: "scraper_discovery",
-      studioName: context.studioName || "",
-      promptTokens,
-      completionTokens,
-      totalTokens,
-      status: "success",
-    });
-
-    const content = completion.choices[0]?.message?.content;
-    return content ? JSON.parse(content) : null;
-  }
 
   /**
    * Construct the discovery prompt

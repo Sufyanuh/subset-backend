@@ -201,6 +201,51 @@ const studioSchema = new Schema(
       type: [String],
       default: ["studio"],
     },
+
+    // ── Automated Scraping Scheduler Fields ─────────────────────
+    scrapingFrequency: {
+      type: String,
+      enum: ["daily", "weekly", "monthly"],
+      default: "weekly",
+      index: true,
+    },
+    nextScrapeAt: {
+      type: Date,
+      default: () => new Date(),
+      index: true,
+    },
+    lastScrapedAt: {
+      type: Date,
+      default: null,
+    },
+    lastStartedAt: {
+      type: Date,
+      default: null,
+    },
+    scrapeStatus: {
+      type: String,
+      enum: ["idle", "scraping", "failed_needs_review"],
+      default: "idle",
+      index: true,
+    },
+    lastScrapeResult: {
+      type: String,
+      enum: ["success", "failed", null],
+      default: null,
+    },
+    failureCount: {
+      type: Number,
+      default: 0,
+    },
+    lastError: {
+      type: String,
+      default: "",
+    },
+    lastErrorType: {
+      type: String,
+      enum: ["permanent", "temporary", "blocked", null],
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -208,5 +253,6 @@ const studioSchema = new Schema(
 );
 
 studioSchema.index({ atsType: 1, isActive: 1 });
+studioSchema.index({ isActive: 1, scrapeStatus: 1, nextScrapeAt: 1 });
 
 export const Studio = model("studio", studioSchema);

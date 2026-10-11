@@ -1,7 +1,9 @@
 import { Studio } from "../../model/studio.js";
 import { Job } from "../../model/job.js";
+import { ScraperSettings } from "../../model/scraperSettings.js";
 import { studioImportService } from "../../services/studioImportService.js";
 import { scraperEngine } from "../../services/scraperEngine.js";
+import { scrapeScheduler } from "../../services/scrapeScheduler.js";
 import { atsDetector } from "../../services/atsDetector.js";
 import { logger } from "../../utils/logger.js";
 
@@ -53,6 +55,8 @@ export const getStudios = async (req, res) => {
       search = "",
       atsType = "",
       status = "",
+      frequency = "",
+      scrapeStatus = "",
       isActive,
     } = req.query;
 
@@ -72,6 +76,14 @@ export const getStudios = async (req, res) => {
 
     if (status) {
       query["scrapingConfig.status"] = status;
+    }
+
+    if (frequency) {
+      query.scrapingFrequency = frequency;
+    }
+
+    if (scrapeStatus) {
+      query.scrapeStatus = scrapeStatus;
     }
 
     if (isActive !== undefined) {
@@ -480,5 +492,283 @@ export const getStudioJobs = async (req, res) => {
     return res.status(500).json({ success: false, message: error.message });
   }
 };
+
+/**
+ * Update scraping frequency for a studio
+ * PATCH /api/admin/studios/:id/frequency
+ */
+export const updateStudioFrequency = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { frequency } = req.body;
+
+    if (!["daily", "weekly", "monthly"].includes(frequency)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid frequency. Must be 'daily', 'weekly', or 'monthly'.",
+      });
+    }
+
+    const studio = await Studio.findById(id);
+    if (!studio) {
+      return res.status(404).json({ success: false, message: "Studio not found" });
+    }
+
+    studio.scrapingFrequency = frequency;
+    // Recalculate next run date based on new frequency
+    studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(frequency, new Date());
+    await studio.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Updated scraping frequency for '${studio.name}' to ${frequency}.`,
+      data: {
+        _id: studio._id,
+        name: studio.name,
+        scrapingFrequency: studio.scrapingFrequency,
+        nextScrapeAt: studio.nextScrapeAt,
+      },
+    });
+  } catch (error) {
+    logger.error("Error updating studio frequency", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Manually queue a studio for immediate scrape
+ * POST /api/admin/studios/:id/run-now
+ */
+export const runStudioNow = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await scrapeScheduler.runStudioNow(id);
+    return res.status(200).json(result);
+  } catch (error) {
+    logger.error("Error running studio now", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Reset a studio with 'failed_needs_review' back to 'idle'
+ * POST /api/admin/studios/:id/reset
+ */
+export const resetStudio = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await scrapeScheduler.resetStudio(id);
+    return res.status(200).json(result);
+  } catch (error) {
+    logger.error("Error resetting studio", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Get automated scraping pipeline status, counts, and settings
+ * GET /api/admin/studios/scraping/status
+ */
+export const getScrapingStatus = async (req, res) => {
+  try {
+    const now = new Date();
+    const settings = await ScraperSettings.getSettings();
+
+    const [
+      totalActive,
+      dueCount,
+      scrapingCount,
+      failedNeedsReviewCount,
+      dailyCount,
+      weeklyCount,
+      monthlyCount,
+      recentScraped,
+    ] = await Promise.all([
+      Studio.countDocuments({ isActive: true }),
+      Studio.countDocuments({
+        isActive: true,
+        scrapeStatus: "idle",
+        nextScrapeAt: { $lte: now },
+      }),
+      Studio.countDocuments({ scrapeStatus: "scraping" }),
+      Studio.countDocuments({ scrapeStatus: "failed_needs_review" }),
+      Studio.countDocuments({ isActive: true, scrapingFrequency: "daily" }),
+      Studio.countDocuments({ isActive: true, scrapingFrequency: "weekly" }),
+      Studio.countDocuments({ isActive: true, scrapingFrequency: "monthly" }),
+      Studio.find({ lastScrapedAt: { $ne: null } })
+        .sort({ lastScrapedAt: -1 })
+        .limit(10)
+        .select("name careersUrl lastScrapedAt lastScrapeResult lastError failureCount scrapingFrequency")
+        .lean(),
+    ]);
+
+    // Heartbeat check: Cron runs every 15 mins. If lastHeartbeatAt was more than 35 mins ago, cron is likely dead/stopped.
+    const lastHeartbeat = settings.lastHeartbeatAt ? new Date(settings.lastHeartbeatAt).getTime() : 0;
+    const minutesSinceHeartbeat = lastHeartbeat ? Math.round((Date.now() - lastHeartbeat) / 60000) : null;
+    const isCronHealthy = minutesSinceHeartbeat !== null && minutesSinceHeartbeat <= 35;
+
+    return res.status(200).json({
+      success: true,
+      data: {
+        cronHealth: {
+          isHealthy: isCronHealthy,
+          lastHeartbeatAt: settings.lastHeartbeatAt,
+          minutesSinceHeartbeat,
+          status: isCronHealthy ? "running" : "stopped",
+        },
+        settings: {
+          isPaused: settings.isPaused,
+          concurrency: settings.concurrency,
+          batchSize: settings.batchSize,
+          cooldownSeconds: settings.cooldownSeconds,
+          lastRunAt: settings.lastRunAt,
+          activeWindowEnabled: settings.activeWindowEnabled || false,
+          startHourUtc: settings.startHourUtc ?? 0,
+          endHourUtc: settings.endHourUtc ?? 23,
+          cronIntervalMinutes: settings.cronIntervalMinutes || 15,
+        },
+        counts: {
+          totalActive,
+          dueCount,
+          scrapingCount,
+          failedNeedsReviewCount,
+          byFrequency: {
+            daily: dailyCount,
+            weekly: weeklyCount,
+            monthly: monthlyCount,
+          },
+        },
+        recentScraped,
+      },
+    });
+  } catch (error) {
+    logger.error("Error getting scraping status", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Update scraper settings (operating UTC window, batch size, concurrency)
+ * PUT /api/admin/studios/scraping/settings
+ */
+export const updateScraperSettings = async (req, res) => {
+  try {
+    const {
+      activeWindowEnabled,
+      startHourUtc,
+      endHourUtc,
+      batchSize,
+      concurrency,
+      cooldownSeconds,
+    } = req.body;
+
+    const settings = await ScraperSettings.getSettings();
+
+    if (activeWindowEnabled !== undefined) {
+      settings.activeWindowEnabled = Boolean(activeWindowEnabled);
+    }
+    if (startHourUtc !== undefined) {
+      settings.startHourUtc = Math.min(23, Math.max(0, parseInt(startHourUtc, 10)));
+    }
+    if (endHourUtc !== undefined) {
+      settings.endHourUtc = Math.min(23, Math.max(0, parseInt(endHourUtc, 10)));
+    }
+    if (batchSize !== undefined) {
+      settings.batchSize = Math.min(20, Math.max(1, parseInt(batchSize, 10)));
+    }
+    if (concurrency !== undefined) {
+      settings.concurrency = Math.min(5, Math.max(1, parseInt(concurrency, 10)));
+    }
+    if (cooldownSeconds !== undefined) {
+      settings.cooldownSeconds = Math.min(30, Math.max(1, parseInt(cooldownSeconds, 10)));
+    }
+
+    settings.updatedBy = req.user?.email || "admin";
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Scraper settings updated successfully.",
+      data: settings,
+    });
+  } catch (error) {
+    logger.error("Error updating scraper settings", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Ping / refresh cron heartbeat & trigger batch run
+ * POST /api/admin/studios/scraping/ping
+ */
+export const pingCronHeartbeat = async (req, res) => {
+  try {
+    const settings = await ScraperSettings.getSettings();
+    settings.lastHeartbeatAt = new Date();
+    await settings.save();
+
+    // Trigger batch in background
+    setImmediate(() => {
+      scrapeScheduler.runBatch().catch((err) => logger.error("Ping runBatch error:", err));
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Cron heartbeat refreshed and batch run triggered.",
+      lastHeartbeatAt: settings.lastHeartbeatAt,
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Toggle global pause on automated scraping
+ * POST /api/admin/studios/scraping/pause
+ * POST /api/admin/studios/scraping/resume
+ */
+export const toggleScrapingPause = async (req, res) => {
+  try {
+    const isPaused = req.path.endsWith("/pause");
+    const settings = await ScraperSettings.getSettings();
+    settings.isPaused = isPaused;
+    settings.updatedBy = req.user?.email || "admin";
+    await settings.save();
+
+    return res.status(200).json({
+      success: true,
+      message: `Automated scraping ${isPaused ? "PAUSED" : "RESUMED"} successfully.`,
+      isPaused: settings.isPaused,
+    });
+  } catch (error) {
+    logger.error("Error toggling scraping pause", error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+/**
+ * Manually trigger a scheduler batch run immediately
+ * POST /api/admin/studios/scraping/run-batch
+ */
+export const triggerManualBatch = async (req, res) => {
+  try {
+    // Run in background and return immediate acknowledgement
+    setImmediate(async () => {
+      try {
+        await scrapeScheduler.runBatch();
+      } catch (err) {
+        logger.error("Error running manual batch:", err);
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Scraping batch run triggered in background.",
+    });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: error.message });
+  }
+};
+
 
 

@@ -489,6 +489,17 @@ class ScraperEngine {
       );
       await page.setViewport({ width: 1920, height: 1080 });
 
+      // Resource Optimization: Abort heavy images, fonts, and media to save RAM & bandwidth
+      await page.setRequestInterception(true);
+      page.on("request", (req) => {
+        const resourceType = req.resourceType();
+        if (["image", "media", "font"].includes(resourceType)) {
+          req.abort();
+        } else {
+          req.continue();
+        }
+      });
+
       // Navigate and wait for content
       await page.goto(url, { waitUntil: "networkidle2", timeout: 25000 });
 
