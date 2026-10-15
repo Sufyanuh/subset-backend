@@ -27,3 +27,6 @@ dist-ssr
 uploads
 *service-account*.json
 ga-service-account.json
+# Temporary / scratch scripts & exports
+scratch/
+*.xlsx

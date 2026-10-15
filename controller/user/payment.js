@@ -64,12 +64,24 @@ export const createCheckoutSession = async (req, res) => {
       product: product.id,
     });
 
-    // ✅ Create or get Stripe customer
+    // ✅ Create or get Stripe customer, ensuring the ID is valid in Stripe
     let customerId = user.stripeCustomerId;
+    if (customerId) {
+      try {
+        const existingCustomer = await stripe.customers.retrieve(customerId);
+        if (existingCustomer.deleted) {
+          customerId = null;
+        }
+      } catch (err) {
+        console.warn(`Customer ${customerId} not found in Stripe, creating a new one:`, err.message);
+        customerId = null;
+      }
+    }
+
     if (!customerId) {
       const customer = await stripe.customers.create({
         email: user.email,
-        name: user.fullName,
+        name: user.fullName || user.username,
         metadata: {
           userId: String(userId),
           username: user.username,
@@ -81,33 +93,53 @@ export const createCheckoutSession = async (req, res) => {
       await User.findByIdAndUpdate(userId, { stripeCustomerId: customerId });
     }
 
-    // ✅ Check if user is eligible for trial (new user with no previous subscription)
-    // Simple logic: if no stripeSubscriptionId exists, they're eligible for trial
-    const isNewUser = !user.stripeSubscriptionId;
-    const trialPeriodDays = isNewUser ? 30 : 0; // 30-day trial for new users
+    // Clean up any stale incomplete subscription in Stripe from a previous failed checkout attempt
+    if (user.stripeSubscriptionId && ["incomplete", "incomplete_expired"].includes(user.subscriptionStatus)) {
+      try {
+        await stripe.subscriptions.cancel(user.stripeSubscriptionId);
+      } catch (e) {
+        // Ignore if already deleted/canceled in Stripe
+      }
+    }
+
+    // ✅ Check if user is eligible for trial
+    // Users are eligible if they never had an active, trialing, or past_due subscription
+    const hasHadActiveSubscription =
+      user.isPaid ||
+      user.isTrial ||
+      Boolean(user.trialStart) ||
+      ["active", "trialing", "past_due"].includes(user.subscriptionStatus);
+
+    const isTrialEligible = !hasHadActiveSubscription;
+    const trialPeriodDays = isTrialEligible ? 30 : 0; // 30-day trial for eligible users
 
     console.log(`🎯 User ${user.username} trial eligibility:`, {
-      isNewUser,
+      isTrialEligible,
+      hasHadActiveSubscription,
       hasStripeSubscription: !!user.stripeSubscriptionId,
+      subscriptionStatus: user.subscriptionStatus,
       trialDays: trialPeriodDays,
     });
+
+    const subscriptionData = {
+      ...(trialPeriodDays > 0 ? { trial_period_days: trialPeriodDays } : {}),
+      metadata: {
+        planName: productName,
+        billingCycle: interval,
+        isTrialEligible: isTrialEligible.toString(),
+        trialDays: trialPeriodDays.toString(),
+      },
+    };
 
     const session = await stripe.checkout.sessions.create({
       mode: "subscription",
       customer: customerId,
       line_items: [{ price: price.id, quantity: 1 }],
-      subscription_data: {
-        trial_period_days: trialPeriodDays,
-        metadata: {
-          planName: productName,
-          billingCycle: interval,
-          isTrialEligible: isNewUser.toString(),
-          trialDays: trialPeriodDays.toString(),
-        },
-      },
-      success_url:
+      subscription_data: subscriptionData,
+      success_url: (
         successUrl ||
-        `${process.env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`,
+        `${process.env.FRONTEND_URL}/payment/success?session_id={CHECKOUT_SESSION_ID}`
+      ).replace(/%7BCHECKOUT_SESSION_ID%7D/gi, "{CHECKOUT_SESSION_ID}"),
       cancel_url: cancelUrl || `${process.env.FRONTEND_URL}/payment/cancel`,
       metadata: {
         userId: String(userId),
@@ -115,7 +147,7 @@ export const createCheckoutSession = async (req, res) => {
         billingCycle: interval,
         productId: product.id,
         priceId: price.id,
-        isTrialEligible: isNewUser.toString(),
+        isTrialEligible: isTrialEligible.toString(),
         trialDays: trialPeriodDays.toString(),
       },
       allow_promotion_codes: true,
@@ -126,7 +158,7 @@ export const createCheckoutSession = async (req, res) => {
       id: session.id,
       url: session.url,
       sessionId: session.id,
-      trialEligible: isNewUser,
+      trialEligible: isTrialEligible,
       trialDays: trialPeriodDays,
     });
   } catch (error) {
@@ -141,8 +173,8 @@ export const createCheckoutSession = async (req, res) => {
 export const verifyCheckoutSession = async (req, res) => {
   try {
     const { sessionId } = req.query;
-    if (!sessionId) {
-      return res.status(400).json({ message: "Missing sessionId" });
+    if (!sessionId || sessionId === "{CHECKOUT_SESSION_ID}") {
+      return res.status(400).json({ message: "Invalid or missing sessionId" });
     }
 
     const session = await stripe.checkout.sessions.retrieve(sessionId, {
@@ -166,6 +198,7 @@ export const verifyCheckoutSession = async (req, res) => {
       const planName = session.metadata?.planName;
       const billingCycle = session.metadata?.billingCycle;
 
+      let updatedUser = null;
       if (userId) {
         const isTrial = session.subscription.status === "trialing";
 
@@ -210,7 +243,7 @@ export const verifyCheckoutSession = async (req, res) => {
           );
         }
 
-        await User.findByIdAndUpdate(userId, updateData, { new: true });
+        updatedUser = await User.findByIdAndUpdate(userId, updateData, { new: true }).select("-password");
 
         console.log(`✅ Subscription verified for user ${userId}:`, {
           status: session.subscription.status,
@@ -223,6 +256,7 @@ export const verifyCheckoutSession = async (req, res) => {
       return res.status(200).json({
         success: true,
         paid: true,
+        user: updatedUser,
         billingCycle,
         subscriptionId: session.subscription.id,
         customerId: session.customer,
