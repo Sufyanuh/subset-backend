@@ -452,7 +452,7 @@ export const getStudioJobs = async (req, res) => {
       Job.find(query)
         .populate("jobCategory", "name")
         .populate("jobCategories", "name")
-        .sort({ postedAt: -1, createdAt: -1 })
+        .sort({ createdAt: -1 })
         .skip(skip)
         .limit(limitNum)
         .lean(),

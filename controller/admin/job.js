@@ -176,9 +176,9 @@ export const GetJobs = async (req, res) => {
       filter.spotLight = spotLight === "true" || spotLight === true;
     }
 
-    let sortOption = { postedAt: -1, createdAt: -1 };
+    let sortOption = { createdAt: -1 };
     if (sort === "oldest") {
-      sortOption = { postedAt: 1, createdAt: 1 };
+      sortOption = { createdAt: 1 };
     }
 
     const pageNum = parseInt(page, 10);
