@@ -50,6 +50,29 @@ class ScraperEngine {
     const startTime = Date.now();
     logger.info(`Starting scrape for studio: ${studio.name} (${studio.careersUrl})`);
 
+    // Validate Careers URL: if invalid or malformed, delete studio immediately
+    const rawUrl = (studio.careersUrl || "").trim();
+    let isValidUrl = false;
+    try {
+      const parsed = new URL(rawUrl);
+      isValidUrl = (parsed.protocol === "http:" || parsed.protocol === "https:") && !rawUrl.includes("://:");
+    } catch {
+      isValidUrl = false;
+    }
+
+    if (!isValidUrl) {
+      logger.warn(`Studio '${studio.name}' has invalid careers URL '${studio.careersUrl}'. Deleting studio from database.`);
+      await Studio.findByIdAndDelete(studio._id);
+      return {
+        success: false,
+        deleted: true,
+        studioId: studio._id,
+        studioName: studio.name,
+        message: `Studio deleted due to invalid careers URL (${studio.careersUrl})`,
+        error: "Invalid URL",
+      };
+    }
+
     try {
       // 0. Ensure studio metadata & visual assets (logo, favicon, og:image) are enriched
       await this.ensureStudioVisualAssets(studio);
@@ -102,13 +125,12 @@ class ScraperEngine {
             };
           }
           if (fetchStatus === 404) {
-            const notFoundMsg = `Careers URL (${studio.careersUrl}) returned 404 Not Found. The page does not exist or has moved.`;
-            studio.scrapingConfig.status = "failed";
-            studio.scrapingConfig.lastError = notFoundMsg;
-            studio.scrapingConfig.lastScrapedAt = new Date();
-            await studio.save();
+            const notFoundMsg = `Careers URL (${studio.careersUrl}) returned 404 Not Found. Studio deleted.`;
+            logger.warn(`Studio '${studio.name}' returned 404 Not Found. Deleting studio from database.`);
+            await Studio.findByIdAndDelete(studio._id);
             return {
               success: false,
+              deleted: true,
               studioId: studio._id,
               studioName: studio.name,
               message: notFoundMsg,
@@ -327,6 +349,24 @@ class ScraperEngine {
         },
       };
     } catch (error) {
+      if (
+        error.response?.status === 404 ||
+        error.code === "ERR_INVALID_URL" ||
+        error.message?.includes("Invalid URL") ||
+        error.message?.includes("404")
+      ) {
+        logger.warn(`Deleting studio '${studio.name}' due to 404/invalid URL: ${error.message}`);
+        await Studio.findByIdAndDelete(studio._id);
+        return {
+          success: false,
+          deleted: true,
+          studioId: studio._id,
+          studioName: studio.name,
+          message: `Studio deleted: ${error.message}`,
+          error: error.message,
+        };
+      }
+
       studio.scrapingConfig.lastScrapedAt = new Date();
       studio.scrapingConfig.lastError = error.message;
       await studio.save();
@@ -908,26 +948,45 @@ class ScraperEngine {
     const deptLower = (job.department || "").toLowerCase();
     const overviewLower = (job.overview || "").toLowerCase();
 
+    // Common synonyms / role variations mapped to category keywords
+    const CATEGORY_ALIASES = {
+      "copywriting": ["copywriter", "copy write", "content writer", "writer"],
+      "graphic design": ["graphic designer", "visual designer"],
+      "motion design": ["motion designer", "motion graphics", "animator"],
+      "art direction": ["art director"],
+      "creative direction": ["creative director"],
+      "design direction": ["design director"],
+      "ui/ux & product design": ["ui/ux", "ux/ui", "product designer", "ux designer", "ui designer", "interaction designer"],
+      "brand strategy": ["brand strategist"],
+      "strategy": ["strategist"],
+      "typography": ["typographer", "type designer"],
+      "3d": ["3d artist", "3d designer", "3d generalist"],
+      "video editing": ["video editor"],
+      "editorial": ["editor"],
+    };
+
     const matches = [];
 
     for (const cat of categories) {
       if (!cat.name) continue;
       const catNameLower = cat.name.toLowerCase();
+      const aliases = CATEGORY_ALIASES[catNameLower] || [];
+      const searchTerms = [catNameLower, ...aliases];
 
       // Check title first (highest precision)
-      if (titleLower.includes(catNameLower)) {
+      if (searchTerms.some((term) => titleLower.includes(term))) {
         matches.push(cat);
         continue;
       }
 
       // Check department next
-      if (deptLower && deptLower.includes(catNameLower)) {
+      if (deptLower && searchTerms.some((term) => deptLower.includes(term))) {
         matches.push(cat);
         continue;
       }
 
       // Check overview
-      if (overviewLower && overviewLower.includes(catNameLower)) {
+      if (overviewLower && searchTerms.some((term) => overviewLower.includes(term))) {
         matches.push(cat);
       }
     }

@@ -166,7 +166,9 @@ class AtsDetector {
         const location = item.categories?.location || "";
         const workplaceType =
           item.categories?.workplaceType || this.inferWorkplaceType(location, item.text);
-        const department = item.categories?.department || item.categories?.team || "";
+        const department = [item.categories?.department, item.categories?.team]
+          .filter(Boolean)
+          .join(" - ");
         const postedDateRaw = item.createdAt || item.updatedAt || null;
         const postedAt = postedDateRaw ? new Date(postedDateRaw) : null;
 
