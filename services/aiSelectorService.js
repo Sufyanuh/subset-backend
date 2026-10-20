@@ -85,6 +85,16 @@ class AiSelectorService {
 
 
 
+      if (parsed.requiresPuppeteer) {
+        return {
+          success: false,
+          requiresPuppeteer: true,
+          hasJobs: parsed.hasJobs,
+          message: parsed.notes || "Page requires JavaScript rendering",
+          data: parsed,
+        };
+      }
+
       if (!parsed.hasJobs || !parsed.jobContainer) {
         return {
           success: false,
@@ -215,6 +225,10 @@ class AiSelectorService {
               type: "number",
               description: "Confidence from 0.0 to 1.0",
             },
+            requiresPuppeteer: {
+              type: "boolean",
+              description: "True if the page appears to render jobs dynamically via client-side JavaScript or SPA frameworks (e.g. empty #hits, search widgets, React/Vue roots)",
+            },
             notes: {
               type: "string",
               description: "Brief note explaining the structure found or why no jobs were found",
@@ -263,6 +277,7 @@ IMPORTANT REQUIREMENTS:
 5. If the listing displays when the job was posted (e.g. <time>, 'span.date', 'Posted 3 days ago'), provide 'datePostedSelector'.
 6. Prefer resilient, clean selectors (e.g. tag + class like 'li.job-listing', 'h3.title') rather than fragile dynamic hash classes or deeply nested pseudo-selectors.
 7. If the page clearly has no job openings (e.g. says "No current openings", "Check back later", or empty careers section), set "hasJobs": false.
+8. If the page contains a job search widget, filter interface, or empty container (e.g. #hits, .job-list, .vacancies, search inputs, Algolia/React/Vue mounts) without pre-rendered job items, set "requiresPuppeteer": true.
 
 Cleaned HTML Snippet:
 \`\`\`html

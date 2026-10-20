@@ -191,7 +191,7 @@ class ScraperEngine {
           // If no selectors or routine scraping found 0 jobs, check SPA or re-discover
           if (rawJobs.length === 0) {
             // Check if page is an empty client-rendered JS shell
-            const looksLikeSpa = this.isClientRenderedShell(html);
+            const looksLikeSpa = this.isClientRenderedShell(html, studio.careersUrl);
             if (looksLikeSpa && !studio.scrapingConfig?.requiresPuppeteer) {
               logger.info(`Page appears to be SPA for ${studio.name}. Fetching via Puppeteer...`);
               html = await this.fetchWithPuppeteer(studio.careersUrl);
@@ -236,17 +236,28 @@ class ScraperEngine {
                 url: studio.careersUrl,
               });
 
-              if (discoveryRes.requiresPuppeteer && !studio.scrapingConfig?.requiresPuppeteer) {
+              // If static discovery found no jobs, failed, or indicated requiresPuppeteer,
+              // and Puppeteer has not been tried yet, fallback to Puppeteer
+              if (
+                (!discoveryRes.success || discoveryRes.hasJobs === false || discoveryRes.requiresPuppeteer) &&
+                !studio.scrapingConfig?.requiresPuppeteer
+              ) {
                 logger.info(
-                  `AI indicated page requires JavaScript rendering for ${studio.name}. Fetching with Puppeteer...`
+                  `Static discovery yielded no jobs or requires JS rendering for ${studio.name}. Attempting Puppeteer fallback...`
                 );
                 try {
-                  html = await this.fetchWithPuppeteer(studio.careersUrl);
-                  studio.scrapingConfig.requiresPuppeteer = true;
-                  discoveryRes = await aiSelectorService.discoverSelectors(html, {
-                    studioName: studio.name,
-                    url: studio.careersUrl,
-                  });
+                  const puppeteerHtml = await this.fetchWithPuppeteer(studio.careersUrl);
+                  const puppeteerBlock = this.checkAntiBotProtection(puppeteerHtml, 200, studio.careersUrl);
+                  if (puppeteerBlock) {
+                    logger.warn(`Puppeteer fallback blocked by anti-bot for ${studio.name}`);
+                  } else if (puppeteerHtml && puppeteerHtml.length > 500) {
+                    html = puppeteerHtml;
+                    studio.scrapingConfig.requiresPuppeteer = true;
+                    discoveryRes = await aiSelectorService.discoverSelectors(html, {
+                      studioName: studio.name,
+                      url: studio.careersUrl,
+                    });
+                  }
                 } catch (puppeteerErr) {
                   logger.warn(
                     `Puppeteer fallback failed for ${studio.name}: ${puppeteerErr.message}`
@@ -1007,18 +1018,56 @@ class ScraperEngine {
   }
 
   /**
-   * Helper: Check if page HTML looks like an empty client-rendered JS shell
+   * Helper: Check if page HTML looks like an empty client-rendered JS shell or dynamic widget
    */
-  isClientRenderedShell(html) {
+  isClientRenderedShell(html, url = "") {
     if (!html || html.length < 500) return true;
     const lower = html.toLowerCase();
-    const hasRoot =
+    const urlLower = (url || "").toLowerCase();
+
+    // 1. URL hints for client-side search/filter interfaces
+    if (
+      urlLower.includes("refinementlist") ||
+      urlLower.includes("facetfilters") ||
+      urlLower.includes("instantsearch") ||
+      urlLower.includes("jobsearch") ||
+      urlLower.includes("#/")
+    ) {
+      return true;
+    }
+
+    // 2. Known SPA frameworks or dynamic search widgets
+    const hasDynamicWidget =
+      lower.includes("ais-instantsearch") ||
+      lower.includes("instantsearch.js") ||
+      lower.includes("algoliasearch") ||
+      lower.includes("filtered-search") ||
+      lower.includes('id="hits"') ||
+      lower.includes('class="hits"') ||
+      lower.includes("search-component") ||
+      lower.includes("data-reactroot") ||
       lower.includes('id="root"') ||
       lower.includes('id="__next"') ||
       lower.includes('id="app"');
-    const strippedText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-    // If has root tag and very little actual visible text (<200 chars), it's an unhydrated SPA
-    return hasRoot && strippedText.length < 300;
+
+    if (hasDynamicWidget) {
+      if (
+        lower.includes('id="hits"') ||
+        lower.includes('class="hits"') ||
+        lower.includes("filtered-search") ||
+        lower.includes("ais-instantsearch") ||
+        lower.includes("algoliasearch")
+      ) {
+        return true;
+      }
+
+      const strippedText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      if (strippedText.length < 600) {
+        return true;
+      }
+    }
+
+    return false;
   }
 
   /**

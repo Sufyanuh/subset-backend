@@ -136,7 +136,7 @@ class DomCleaner {
     if (cleaned.length > maxLength) {
       // Find candidate job sections first
       const candidateSection = this.findCandidateJobSection($, root);
-      if (candidateSection && candidateSection.length > 200 && candidateSection.length < maxLength) {
+      if (candidateSection && candidateSection.length > 200 && candidateSection.length < maxLength * 1.5) {
         return candidateSection;
       }
       return cleaned.slice(0, maxLength);
@@ -152,29 +152,82 @@ class DomCleaner {
    * @returns {string|null} HTML of candidate section
    */
   findCandidateJobSection($, root) {
-    const jobKeywords = [
-      '[class*="job" i]',
-      '[class*="career" i]',
-      '[class*="opening" i]',
-      '[class*="position" i]',
-      '[id*="job" i]',
-      '[id*="career" i]',
-      '[id*="opening" i]',
-      '[id*="position" i]',
-      'ul[class*="list" i]',
-      "table",
+    // 1. Direct container candidates (known job listings wrappers)
+    const directContainers = [
+      "mat-accordion",
+      "search-job-cards",
+      '[class*="search-results" i]',
+      '[class*="job-results" i]',
+      '[class*="job-list" i]',
+      '[class*="jobs-list" i]',
+      '[class*="openings-list" i]',
+      '[class*="career-list" i]',
+      '[class*="positions-list" i]',
+      '[id*="search-results" i]',
+      '[id*="job-results" i]',
+      '[id*="jobs-list" i]',
+      '[id*="job-list" i]',
+      "#hits",
+      ".ais-Hits",
+      '[role="feed"]',
     ];
 
-    for (const selector of jobKeywords) {
-      const matches = root.find(selector);
-      if (matches.length > 0) {
-        // Find container that has multiple matching children (likely job cards)
-        const parent = matches.first().parent();
-        if (parent && parent.length > 0) {
-          const html = parent.html();
-          if (html && html.length > 300) {
-            return parent.prop("outerHTML") || html;
+    for (const selector of directContainers) {
+      const el = root.find(selector).first();
+      if (el.length > 0) {
+        // Ensure it's not a filter bar
+        const isFilter = el.is('[class*="filter" i], [id*="filter" i], form, search-filter-bar');
+        if (!isFilter) {
+          const html = el.prop("outerHTML") || el.html() || "";
+          if (html.length > 300) {
+            return html;
           }
+        }
+      }
+    }
+
+    // 2. Look for repeated job card / item elements
+    const cardSelectors = [
+      "mat-expansion-panel",
+      ".search-result-item",
+      '[class*="job-card" i]',
+      '[class*="job-item" i]',
+      '[class*="job-row" i]',
+      '[class*="position-card" i]',
+      '[class*="opening-card" i]',
+      '[class*="search-hit" i]',
+      'article[class*="job" i]',
+      'li[class*="job" i]',
+    ];
+
+    for (const selector of cardSelectors) {
+      const cards = root.find(selector);
+      if (cards.length >= 1) {
+        // Find their common parent
+        const parent = cards.first().parent();
+        if (parent && parent.length > 0) {
+          const isFilter = parent.is('[class*="filter" i], [id*="filter" i], form, search-filter-bar');
+          if (!isFilter) {
+            const html = parent.prop("outerHTML") || parent.html() || "";
+            if (html.length > 300) {
+              return html;
+            }
+          }
+        }
+      }
+    }
+
+    // 3. Fallback: Find links with /jobs/ or /careers/ and get their common container
+    const jobLinks = root.find('a[href*="/job" i], a[href*="/career" i]');
+    if (jobLinks.length >= 2) {
+      let current = jobLinks.first().parent();
+      while (current && current.length > 0 && current.find(jobLinks).length < 2 && !current.is("body, main")) {
+        current = current.parent();
+      }
+      if (current && current.length > 0 && !current.is("body, main")) {
+        const html = current.prop("outerHTML") || current.html() || "";
+        if (html.length > 300) {
+          return html;
         }
       }
     }
