@@ -831,72 +831,77 @@ class ScraperEngine {
   }
 
   /**
-   * Creative role keywords used to pre-filter job titles.
-   * A job title MUST contain at least one of these terms to be saved.
-   * This prevents irrelevant engineering / ops / finance jobs from polluting the feed.
+   * Minimal base signals — used as fallback when the DB has no categories yet.
+   * Broad enough to catch the most common creative roles without being exhaustive.
+   * The real source of truth is the JobCategories collection in the DB.
    */
-  static CREATIVE_TITLE_KEYWORDS = [
-    // Design — broad
-    "design", "designer",
-    // Art & Direction
-    "art director", "art direction", "artdirector",
-    "creative director", "creative direction",
-    "design director",
-    // Copywriting / Writing
-    "copywriter", "copywriting", "copy writer", "copy strategist",
-    "content writer", "content strategist", "content creator",
-    "scriptwriter", "script writer",
-    "wordsmith",
-    // Motion / Animation
-    "motion", "animator", "animation", "motion graphics",
-    "after effects", "cinema 4d",
-    // 3D
-    "3d", "three-dimensional", "cgi", "vfx", "visual effects",
-    "houdini", "blender",
-    // Sound / Audio
-    "sound designer", "audio designer", "sound design",
-    "composer", "sonic",
-    // Industrial / Product Design
-    "industrial designer", "industrial design",
-    "product designer",
-    // Photography / Retouching
-    "photographer", "photography", "retoucher", "retouching",
-    // Illustration / Concept Art
-    "illustrator", "illustration",
-    "concept artist", "concept art",
-    // Brand / Strategy
-    "brand strategist", "brand strategy",
-    "strategist", "strategy",
-    // Typography
-    "typographer", "typography", "type designer",
-    // UI/UX
-    "ui/ux", "ux/ui", "ux designer", "ui designer",
-    "interaction designer", "experience designer",
-    // Video / Editing
-    "video editor", "video editing", "film editor",
-    "cinematographer", "cinematography",
-    "director of photography",
-    // Print / Packaging
-    "print designer", "packaging designer",
-    // Fashion / Textile
-    "fashion designer", "textile designer",
-    // Spatial / Interior
-    "spatial designer", "interior designer",
-    // Creative General
-    "creative", "artwork", "visual artist", "visual identity",
-    "storyteller", "storyboard",
+  static CREATIVE_BASE_SIGNALS = [
+    "design", "designer", "creative", "art", "visual", "motion",
+    "animation", "animator", "brand", "copy", "content", "photo",
+    "illustrat", "3d", "cgi", "vfx", "ux", "ui", "typography",
+    "video", "film", "strategy", "strategist", "editorial",
   ];
 
   /**
-   * Returns true if the job title contains at least one creative/design keyword.
-   * Matching is case-insensitive and uses word-boundary-aware substring matching.
+   * Synonym map: DB category name (lowercase) → list of title aliases.
+   * Add aliases here when a category name doesn't appear verbatim in job titles.
+   * This is the ONLY place aliases need to be maintained.
+   */
+  static CATEGORY_ALIASES = {
+    "copywriting":            ["copywriter", "copy write", "content writer", "writer"],
+    "graphic design":         ["graphic designer", "visual designer"],
+    "motion design":          ["motion designer", "motion graphics", "animator"],
+    "art direction":          ["art director"],
+    "creative direction":     ["creative director"],
+    "design direction":       ["design director"],
+    "ui/ux & product design": ["ui/ux", "ux/ui", "product designer", "ux designer", "ui designer", "interaction designer"],
+    "brand strategy":         ["brand strategist"],
+    "strategy":               ["strategist"],
+    "typography":             ["typographer", "type designer"],
+    "3d":                     ["3d artist", "3d designer", "3d generalist"],
+    "video editing":          ["video editor"],
+    "editorial":              ["editor"],
+  };
+
+  /**
+   * Build a flat keyword list from DB categories + their aliases.
+   * Automatically incorporates any new category an admin adds to the DB.
+   * Falls back to CREATIVE_BASE_SIGNALS when categories array is empty.
+   *
+   * @param {Array} categories - Lean JobCategory documents from DB
+   * @returns {string[]} Lowercase keyword list
+   */
+  static buildCreativeKeywords(categories = []) {
+    // Always start with the broad base signals
+    const keywords = new Set(ScraperEngine.CREATIVE_BASE_SIGNALS);
+
+    for (const cat of categories) {
+      if (!cat.name) continue;
+      const nameLower = cat.name.toLowerCase();
+
+      // Category name itself is a keyword
+      keywords.add(nameLower);
+
+      // Add all known aliases for this category
+      const aliases = ScraperEngine.CATEGORY_ALIASES[nameLower] || [];
+      for (const alias of aliases) keywords.add(alias);
+    }
+
+    return [...keywords];
+  }
+
+  /**
+   * Returns true if the job title contains at least one keyword from
+   * the dynamically built list (DB categories + aliases + base signals).
+   *
    * @param {string} title
+   * @param {string[]} keywords - Output of buildCreativeKeywords()
    * @returns {boolean}
    */
-  isTitleCreative(title) {
-    if (!title) return false;
+  isTitleCreative(title, keywords) {
+    if (!title || !keywords || keywords.length === 0) return false;
     const lower = title.toLowerCase();
-    return ScraperEngine.CREATIVE_TITLE_KEYWORDS.some((kw) => lower.includes(kw));
+    return keywords.some((kw) => lower.includes(kw));
   }
 
   /**
@@ -910,6 +915,12 @@ class ScraperEngine {
 
     // 1. Fetch active categories from database
     const categories = await JobCategory.find({}).lean();
+
+    // 2. Build dynamic creative keyword list from DB categories.
+    //    Any category the admin adds will automatically expand the filter gate —
+    //    no code change required.
+    const creativeKeywords = ScraperEngine.buildCreativeKeywords(categories);
+    logger.info(`[Title Filter] Active keywords built from ${categories.length} DB categories (${creativeKeywords.length} total keywords)`);
 
     let matchedCount = 0;
     let savedCount = 0;
@@ -931,8 +942,9 @@ class ScraperEngine {
       // TITLE KEYWORD GATE — Drop jobs with no creative/design signal
       // in the title. This prevents engineering, ops, finance, legal,
       // sales etc. jobs from ever reaching the database.
+      // Keywords are derived from DB categories — admin-driven, no code change needed.
       // ---------------------------------------------------------------
-      if (!this.isTitleCreative(jobItem.jobTitle)) {
+      if (!this.isTitleCreative(jobItem.jobTitle, creativeKeywords)) {
         logger.info(
           `[Title Filter] Dropping non-creative job: "${jobItem.jobTitle}" at ${studio.name}`
         );
@@ -1037,22 +1049,8 @@ class ScraperEngine {
     const deptLower = (job.department || "").toLowerCase();
     const overviewLower = (job.overview || "").toLowerCase();
 
-    // Common synonyms / role variations mapped to category keywords
-    const CATEGORY_ALIASES = {
-      "copywriting": ["copywriter", "copy write", "content writer", "writer"],
-      "graphic design": ["graphic designer", "visual designer"],
-      "motion design": ["motion designer", "motion graphics", "animator"],
-      "art direction": ["art director"],
-      "creative direction": ["creative director"],
-      "design direction": ["design director"],
-      "ui/ux & product design": ["ui/ux", "ux/ui", "product designer", "ux designer", "ui designer", "interaction designer"],
-      "brand strategy": ["brand strategist"],
-      "strategy": ["strategist"],
-      "typography": ["typographer", "type designer"],
-      "3d": ["3d artist", "3d designer", "3d generalist"],
-      "video editing": ["video editor"],
-      "editorial": ["editor"],
-    };
+    // Aliases are now the single static source of truth on the class itself.
+    const CATEGORY_ALIASES = ScraperEngine.CATEGORY_ALIASES;
 
     const matches = [];
 
