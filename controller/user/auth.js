@@ -60,7 +60,7 @@ export const registerUser = async (req, res) => {
 
     // Generate verification token
     const verifyOtp = jwt.sign({ userId: user._id }, process.env.JWT_SECRET, {
-      expiresIn: "15m",
+      expiresIn: "24h",
     });
 
     const verifyUrl = `https://thesubset.org/verifyEmail?token=${verifyOtp}`;
@@ -105,7 +105,12 @@ export const verifyEmail = async (req, res) => {
       message: "Email verified successfully",
     });
   } catch (err) {
-    res.status(500).json({ message: "Invalid or expired token" });
+    const isExpired = err.name === "TokenExpiredError";
+    res.status(400).json({
+      message: isExpired
+        ? "Your verification link has expired. Please log in to receive a new one."
+        : "Invalid verification token.",
+    });
   }
 };
 
