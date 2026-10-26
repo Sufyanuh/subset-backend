@@ -831,6 +831,75 @@ class ScraperEngine {
   }
 
   /**
+   * Creative role keywords used to pre-filter job titles.
+   * A job title MUST contain at least one of these terms to be saved.
+   * This prevents irrelevant engineering / ops / finance jobs from polluting the feed.
+   */
+  static CREATIVE_TITLE_KEYWORDS = [
+    // Design — broad
+    "design", "designer",
+    // Art & Direction
+    "art director", "art direction", "artdirector",
+    "creative director", "creative direction",
+    "design director",
+    // Copywriting / Writing
+    "copywriter", "copywriting", "copy writer", "copy strategist",
+    "content writer", "content strategist", "content creator",
+    "scriptwriter", "script writer",
+    "wordsmith",
+    // Motion / Animation
+    "motion", "animator", "animation", "motion graphics",
+    "after effects", "cinema 4d",
+    // 3D
+    "3d", "three-dimensional", "cgi", "vfx", "visual effects",
+    "houdini", "blender",
+    // Sound / Audio
+    "sound designer", "audio designer", "sound design",
+    "composer", "sonic",
+    // Industrial / Product Design
+    "industrial designer", "industrial design",
+    "product designer",
+    // Photography / Retouching
+    "photographer", "photography", "retoucher", "retouching",
+    // Illustration / Concept Art
+    "illustrator", "illustration",
+    "concept artist", "concept art",
+    // Brand / Strategy
+    "brand strategist", "brand strategy",
+    "strategist", "strategy",
+    // Typography
+    "typographer", "typography", "type designer",
+    // UI/UX
+    "ui/ux", "ux/ui", "ux designer", "ui designer",
+    "interaction designer", "experience designer",
+    // Video / Editing
+    "video editor", "video editing", "film editor",
+    "cinematographer", "cinematography",
+    "director of photography",
+    // Print / Packaging
+    "print designer", "packaging designer",
+    // Fashion / Textile
+    "fashion designer", "textile designer",
+    // Spatial / Interior
+    "spatial designer", "interior designer",
+    // Creative General
+    "creative", "artwork", "visual artist", "visual identity",
+    "storyteller", "storyboard",
+  ];
+
+  /**
+   * Returns true if the job title contains at least one creative/design keyword.
+   * Matching is case-insensitive and uses word-boundary-aware substring matching.
+   * @param {string} title
+   * @returns {boolean}
+   */
+  isTitleCreative(title) {
+    if (!title) return false;
+    const lower = title.toLowerCase();
+    return ScraperEngine.CREATIVE_TITLE_KEYWORDS.some((kw) => lower.includes(kw));
+  }
+
+  /**
    * Filter jobs matching existing JobCategories and persist with deduplication.
    * Scraped jobs land in "pending" status so admin can review and approve them before publishing.
    */
@@ -858,6 +927,19 @@ class ScraperEngine {
         continue;
       }
 
+      // ---------------------------------------------------------------
+      // TITLE KEYWORD GATE — Drop jobs with no creative/design signal
+      // in the title. This prevents engineering, ops, finance, legal,
+      // sales etc. jobs from ever reaching the database.
+      // ---------------------------------------------------------------
+      if (!this.isTitleCreative(jobItem.jobTitle)) {
+        logger.info(
+          `[Title Filter] Dropping non-creative job: "${jobItem.jobTitle}" at ${studio.name}`
+        );
+        skippedCount++;
+        continue;
+      }
+
       // Check posted date cutoff (Skip old jobs!)
       if (jobItem.postedAt && maxJobAgeDays > 0) {
         const postedTime = new Date(jobItem.postedAt).getTime();
@@ -873,16 +955,12 @@ class ScraperEngine {
         }
       }
 
-      // 2. Match with JobCategory (fallback to default or null, never drop valid jobs!)
+      // 2. Match with JobCategory
+      // Only assign categories that actually match — no random fallback.
+      // Unmatched-but-creative jobs are saved without a category for admin to classify.
       const matchedCats = this.matchJobCategories(jobItem, categories);
-      const primaryCatId =
-        matchedCats[0]?._id || (categories.length > 0 ? categories[0]._id : null);
-      const catIds =
-        matchedCats.length > 0
-          ? matchedCats.map((c) => c._id)
-          : primaryCatId
-          ? [primaryCatId]
-          : [];
+      const primaryCatId = matchedCats[0]?._id || null;
+      const catIds = matchedCats.map((c) => c._id);
 
       matchedCount++;
 
