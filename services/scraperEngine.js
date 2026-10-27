@@ -25,7 +25,8 @@ class ScraperEngine {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        Accept:
+          "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
         "Accept-Language": "en-US,en;q=0.9",
       },
     });
@@ -41,27 +42,35 @@ class ScraperEngine {
     const { forceAiDiscovery = false } = options;
 
     let studio =
-      typeof studioOrId === "string" ? await Studio.findById(studioOrId) : studioOrId;
+      typeof studioOrId === "string"
+        ? await Studio.findById(studioOrId)
+        : studioOrId;
 
     if (!studio) {
       return { success: false, message: "Studio not found" };
     }
 
     const startTime = Date.now();
-    logger.info(`Starting scrape for studio: ${studio.name} (${studio.careersUrl})`);
+    logger.info(
+      `Starting scrape for studio: ${studio.name} (${studio.careersUrl})`,
+    );
 
     // Validate Careers URL: if invalid or malformed, delete studio immediately
     const rawUrl = (studio.careersUrl || "").trim();
     let isValidUrl = false;
     try {
       const parsed = new URL(rawUrl);
-      isValidUrl = (parsed.protocol === "http:" || parsed.protocol === "https:") && !rawUrl.includes("://:");
+      isValidUrl =
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        !rawUrl.includes("://:");
     } catch {
       isValidUrl = false;
     }
 
     if (!isValidUrl) {
-      logger.warn(`Studio '${studio.name}' has invalid careers URL '${studio.careersUrl}'. Deleting studio from database.`);
+      logger.warn(
+        `Studio '${studio.name}' has invalid careers URL '${studio.careersUrl}'. Deleting studio from database.`,
+      );
       await Studio.findByIdAndDelete(studio._id);
       return {
         success: false,
@@ -93,7 +102,7 @@ class ScraperEngine {
         rawJobs = await atsDetector.fetchAtsJobs(
           studio.atsType,
           studio.atsIdentifier,
-          studio
+          studio,
         );
       } else {
         // ---------------------------------------------------------------
@@ -105,12 +114,19 @@ class ScraperEngine {
         try {
           html = await this.fetchHtml(
             studio.careersUrl,
-            studio.scrapingConfig?.requiresPuppeteer
+            studio.scrapingConfig?.requiresPuppeteer,
           );
         } catch (fetchErr) {
           fetchStatus = fetchErr.response?.status || 500;
-          html = typeof fetchErr.response?.data === "string" ? fetchErr.response.data : "";
-          const antiBot = this.checkAntiBotProtection(html, fetchStatus, studio.careersUrl);
+          html =
+            typeof fetchErr.response?.data === "string"
+              ? fetchErr.response.data
+              : "";
+          const antiBot = this.checkAntiBotProtection(
+            html,
+            fetchStatus,
+            studio.careersUrl,
+          );
           if (antiBot) {
             studio.scrapingConfig.status = "failed";
             studio.scrapingConfig.lastError = antiBot;
@@ -126,7 +142,9 @@ class ScraperEngine {
           }
           if (fetchStatus === 404) {
             const notFoundMsg = `Careers URL (${studio.careersUrl}) returned 404 Not Found. Studio deleted.`;
-            logger.warn(`Studio '${studio.name}' returned 404 Not Found. Deleting studio from database.`);
+            logger.warn(
+              `Studio '${studio.name}' returned 404 Not Found. Deleting studio from database.`,
+            );
             await Studio.findByIdAndDelete(studio._id);
             return {
               success: false,
@@ -140,7 +158,11 @@ class ScraperEngine {
           throw fetchErr;
         }
 
-        const antiBotBlock = this.checkAntiBotProtection(html, fetchStatus, studio.careersUrl);
+        const antiBotBlock = this.checkAntiBotProtection(
+          html,
+          fetchStatus,
+          studio.careersUrl,
+        );
         if (antiBotBlock) {
           studio.scrapingConfig.status = "failed";
           studio.scrapingConfig.lastError = antiBotBlock;
@@ -158,7 +180,9 @@ class ScraperEngine {
         // Check if page embeds an ATS widget not previously detected
         const detected = atsDetector.detectAts(studio.careersUrl, html);
         if (detected.atsType !== "custom" && detected.atsIdentifier) {
-          logger.info(`Auto-detected ${detected.atsType} for studio: ${studio.name}`);
+          logger.info(
+            `Auto-detected ${detected.atsType} for studio: ${studio.name}`,
+          );
           studio.atsType = detected.atsType;
           studio.atsIdentifier = detected.atsIdentifier;
           studio.scrapingConfig.status = "discovered";
@@ -168,20 +192,20 @@ class ScraperEngine {
           rawJobs = await atsDetector.fetchAtsJobs(
             detected.atsType,
             detected.atsIdentifier,
-            studio
+            studio,
           );
         } else {
           // Check if we have valid cached selectors
           const hasCachedSelectors = Boolean(
             studio.scrapingConfig?.selectors?.jobContainer &&
-              studio.scrapingConfig?.selectors?.titleSelector
+            studio.scrapingConfig?.selectors?.titleSelector,
           );
 
           if (hasCachedSelectors && !forceAiDiscovery) {
             rawJobs = this.extractJobsWithSelectors(
               html,
               studio.scrapingConfig.selectors,
-              studio
+              studio,
             );
           }
 
@@ -191,14 +215,23 @@ class ScraperEngine {
           // If no selectors or routine scraping found 0 jobs, check SPA or re-discover
           if (rawJobs.length === 0) {
             // Check if page is an empty client-rendered JS shell
-            const looksLikeSpa = this.isClientRenderedShell(html, studio.careersUrl);
+            const looksLikeSpa = this.isClientRenderedShell(
+              html,
+              studio.careersUrl,
+            );
             if (looksLikeSpa && !studio.scrapingConfig?.requiresPuppeteer) {
-              logger.info(`Page appears to be SPA for ${studio.name}. Fetching via Puppeteer...`);
+              logger.info(
+                `Page appears to be SPA for ${studio.name}. Fetching via Puppeteer...`,
+              );
               html = await this.fetchWithPuppeteer(studio.careersUrl);
               studio.scrapingConfig.requiresPuppeteer = true;
 
               // Check if Puppeteer got a captcha / anti-bot block
-              const puppeteerBlock = this.checkAntiBotProtection(html, 200, studio.careersUrl);
+              const puppeteerBlock = this.checkAntiBotProtection(
+                html,
+                200,
+                studio.careersUrl,
+              );
               if (puppeteerBlock) {
                 studio.scrapingConfig.status = "failed";
                 studio.scrapingConfig.lastError = puppeteerBlock;
@@ -218,49 +251,67 @@ class ScraperEngine {
                 rawJobs = this.extractJobsWithSelectors(
                   html,
                   studio.scrapingConfig.selectors,
-                  studio
+                  studio,
                 );
               }
             }
 
             // If still 0 jobs, trigger AI Selector Discovery
             if (rawJobs.length === 0) {
-              logger.info(`Triggering AI Selector Discovery for studio: ${studio.name}`);
+              logger.info(
+                `Triggering AI Selector Discovery for studio: ${studio.name}`,
+              );
               usedMethod = "ai_discovery";
 
               studio.scrapingConfig.discoveryAttempts =
                 (studio.scrapingConfig.discoveryAttempts || 0) + 1;
 
-              let discoveryRes = await aiSelectorService.discoverSelectors(html, {
-                studioName: studio.name,
-                url: studio.careersUrl,
-              });
+              let discoveryRes = await aiSelectorService.discoverSelectors(
+                html,
+                {
+                  studioName: studio.name,
+                  url: studio.careersUrl,
+                },
+              );
 
               // If static discovery found no jobs, failed, or indicated requiresPuppeteer,
               // and Puppeteer has not been tried yet, fallback to Puppeteer
               if (
-                (!discoveryRes.success || discoveryRes.hasJobs === false || discoveryRes.requiresPuppeteer) &&
+                (!discoveryRes.success ||
+                  discoveryRes.hasJobs === false ||
+                  discoveryRes.requiresPuppeteer) &&
                 !studio.scrapingConfig?.requiresPuppeteer
               ) {
                 logger.info(
-                  `Static discovery yielded no jobs or requires JS rendering for ${studio.name}. Attempting Puppeteer fallback...`
+                  `Static discovery yielded no jobs or requires JS rendering for ${studio.name}. Attempting Puppeteer fallback...`,
                 );
                 try {
-                  const puppeteerHtml = await this.fetchWithPuppeteer(studio.careersUrl);
-                  const puppeteerBlock = this.checkAntiBotProtection(puppeteerHtml, 200, studio.careersUrl);
+                  const puppeteerHtml = await this.fetchWithPuppeteer(
+                    studio.careersUrl,
+                  );
+                  const puppeteerBlock = this.checkAntiBotProtection(
+                    puppeteerHtml,
+                    200,
+                    studio.careersUrl,
+                  );
                   if (puppeteerBlock) {
-                    logger.warn(`Puppeteer fallback blocked by anti-bot for ${studio.name}`);
+                    logger.warn(
+                      `Puppeteer fallback blocked by anti-bot for ${studio.name}`,
+                    );
                   } else if (puppeteerHtml && puppeteerHtml.length > 500) {
                     html = puppeteerHtml;
                     studio.scrapingConfig.requiresPuppeteer = true;
-                    discoveryRes = await aiSelectorService.discoverSelectors(html, {
-                      studioName: studio.name,
-                      url: studio.careersUrl,
-                    });
+                    discoveryRes = await aiSelectorService.discoverSelectors(
+                      html,
+                      {
+                        studioName: studio.name,
+                        url: studio.careersUrl,
+                      },
+                    );
                   }
                 } catch (puppeteerErr) {
                   logger.warn(
-                    `Puppeteer fallback failed for ${studio.name}: ${puppeteerErr.message}`
+                    `Puppeteer fallback failed for ${studio.name}: ${puppeteerErr.message}`,
                   );
                 }
               }
@@ -275,17 +326,20 @@ class ScraperEngine {
                 rawJobs = this.extractJobsWithSelectors(
                   html,
                   discoveryRes.selectors,
-                  studio
+                  studio,
                 );
               } else {
                 if (discoveryRes.hasJobs === false) {
-                  logger.info(`No active openings found by AI for: ${studio.name}`);
+                  logger.info(
+                    `No active openings found by AI for: ${studio.name}`,
+                  );
                   studio.scrapingConfig.lastError =
                     "No active job vacancies were found on this career page.";
                   studio.scrapingConfig.status = "unsupported";
                 } else {
                   studio.scrapingConfig.lastError =
-                    discoveryRes.error || "AI discovery failed to find job selectors";
+                    discoveryRes.error ||
+                    "AI discovery failed to find job selectors";
                   studio.scrapingConfig.status = "failed";
                 }
               }
@@ -324,10 +378,8 @@ class ScraperEngine {
       // CATEGORY FILTERING & DEDUPLICATION PERSISTENCE
       // (Scraped jobs are saved with status="pending" for admin review)
       // -----------------------------------------------------------------
-      const { savedCount, matchedCount, skippedCount } = await this.filterAndSaveJobs(
-        rawJobs,
-        studio
-      );
+      const { savedCount, matchedCount, skippedCount } =
+        await this.filterAndSaveJobs(rawJobs, studio);
 
       // Update studio scraping metadata
       studio.scrapingConfig.lastScrapedAt = new Date();
@@ -366,7 +418,9 @@ class ScraperEngine {
         error.message?.includes("Invalid URL") ||
         error.message?.includes("404")
       ) {
-        logger.warn(`Deleting studio '${studio.name}' due to 404/invalid URL: ${error.message}`);
+        logger.warn(
+          `Deleting studio '${studio.name}' due to 404/invalid URL: ${error.message}`,
+        );
         await Studio.findByIdAndDelete(studio._id);
         return {
           success: false,
@@ -401,7 +455,8 @@ class ScraperEngine {
       (studio.website || studio.careersUrl)
     ) {
       const targetSite = studio.website || studio.careersUrl;
-      const meta = await studioMetadataEnricher.enrichStudioMetadata(targetSite);
+      const meta =
+        await studioMetadataEnricher.enrichStudioMetadata(targetSite);
 
       if (meta.visualAssets && meta.visualAssets.length > 0) {
         studio.visualAssets = meta.visualAssets;
@@ -468,11 +523,15 @@ class ScraperEngine {
 
     try {
       const response = await this.http.get(url);
-      return typeof response.data === "string" ? response.data : JSON.stringify(response.data);
+      return typeof response.data === "string"
+        ? response.data
+        : JSON.stringify(response.data);
     } catch (error) {
       // If 403/block or network issue, fallback to Puppeteer if possible
       if (error.response?.status === 403 || error.code === "ECONNRESET") {
-        logger.warn(`Cheerio fetch blocked (${error.message}). Falling back to Puppeteer...`);
+        logger.warn(
+          `Cheerio fetch blocked (${error.message}). Falling back to Puppeteer...`,
+        );
         return this.fetchWithPuppeteer(url);
       }
       throw error;
@@ -527,7 +586,9 @@ class ScraperEngine {
       try {
         browser = await puppeteer.launch(launchOptions);
       } catch (err) {
-        logger.warn(`Primary Puppeteer launch failed (${err.message}). Trying fallback launch...`);
+        logger.warn(
+          `Primary Puppeteer launch failed (${err.message}). Trying fallback launch...`,
+        );
         browser = await puppeteer.launch({
           headless: true,
           args: ["--no-sandbox", "--disable-setuid-sandbox"],
@@ -536,7 +597,7 @@ class ScraperEngine {
 
       const page = await browser.newPage();
       await page.setUserAgent(
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
       );
       await page.setViewport({ width: 1920, height: 1080 });
 
@@ -687,7 +748,7 @@ class ScraperEngine {
         }
       }
       workplaceType = atsDetector.normalizeWorkplaceType(
-        workplaceType || atsDetector.inferWorkplaceType(location, title)
+        workplaceType || atsDetector.inferWorkplaceType(location, title),
       );
 
       // 8. Contract Type (Full-time, Part-time, Contract, Freelance, Internship)
@@ -738,7 +799,9 @@ class ScraperEngine {
         visualAssets.push(studio.logo);
       }
 
-      const deduplicatedVisualAssets = Array.from(new Set(visualAssets.filter(Boolean)));
+      const deduplicatedVisualAssets = Array.from(
+        new Set(visualAssets.filter(Boolean)),
+      );
 
       // 11. Posted Date extraction & parsing
       let postedDateText = "";
@@ -799,14 +862,20 @@ class ScraperEngine {
     const lower = clean.toLowerCase();
     const now = Date.now();
 
-    if (lower.includes("just now") || lower.includes("today") || lower.includes("moment ago")) {
+    if (
+      lower.includes("just now") ||
+      lower.includes("today") ||
+      lower.includes("moment ago")
+    ) {
       return new Date(now);
     }
     if (lower.includes("yesterday")) {
       return new Date(now - 24 * 60 * 60 * 1000);
     }
 
-    const relMatch = lower.match(/(\d+)\+?\s*(minute|hour|day|week|month|year)s?\s*ago/);
+    const relMatch = lower.match(
+      /(\d+)\+?\s*(minute|hour|day|week|month|year)s?\s*ago/,
+    );
     if (relMatch) {
       const num = parseInt(relMatch[1], 10);
       const unit = relMatch[2];
@@ -836,10 +905,30 @@ class ScraperEngine {
    * The real source of truth is the JobCategories collection in the DB.
    */
   static CREATIVE_BASE_SIGNALS = [
-    "design", "designer", "creative", "art", "visual", "motion",
-    "animation", "animator", "brand", "copy", "content", "photo",
-    "illustrat", "3d", "cgi", "vfx", "ux", "ui", "typography",
-    "video", "film", "strategy", "strategist", "editorial",
+    "design",
+    "designer",
+    "creative",
+    "art",
+    "visual",
+    "motion",
+    "animation",
+    "animator",
+    "brand",
+    "copy",
+    "content",
+    "photo",
+    "illustrat",
+    "3d",
+    "cgi",
+    "vfx",
+    "ux",
+    "ui",
+    "typography",
+    "video",
+    "film",
+    "strategy",
+    "strategist",
+    "editorial",
   ];
 
   /**
@@ -848,19 +937,26 @@ class ScraperEngine {
    * This is the ONLY place aliases need to be maintained.
    */
   static CATEGORY_ALIASES = {
-    "copywriting":            ["copywriter", "copy write", "content writer", "writer"],
-    "graphic design":         ["graphic designer", "visual designer"],
-    "motion design":          ["motion designer", "motion graphics", "animator"],
-    "art direction":          ["art director"],
-    "creative direction":     ["creative director"],
-    "design direction":       ["design director"],
-    "ui/ux & product design": ["ui/ux", "ux/ui", "product designer", "ux designer", "ui designer", "interaction designer"],
-    "brand strategy":         ["brand strategist"],
-    "strategy":               ["strategist"],
-    "typography":             ["typographer", "type designer"],
-    "3d":                     ["3d artist", "3d designer", "3d generalist"],
-    "video editing":          ["video editor"],
-    "editorial":              ["editor"],
+    copywriting: ["copywriter", "copy write", "content writer", "writer"],
+    "graphic design": ["graphic designer", "visual designer"],
+    "motion design": ["motion designer", "motion graphics", "animator"],
+    "art direction": ["art director"],
+    "creative direction": ["creative director"],
+    "design direction": ["design director"],
+    "ui/ux & product design": [
+      "ui/ux",
+      "ux/ui",
+      "product designer",
+      "ux designer",
+      "ui designer",
+      "interaction designer",
+    ],
+    "brand strategy": ["brand strategist"],
+    strategy: ["strategist"],
+    typography: ["typographer", "type designer"],
+    "3d": ["3d artist", "3d designer", "3d generalist"],
+    "video editing": ["video editor"],
+    editorial: ["editor"],
   };
 
   /**
@@ -920,7 +1016,9 @@ class ScraperEngine {
     //    Any category the admin adds will automatically expand the filter gate —
     //    no code change required.
     const creativeKeywords = ScraperEngine.buildCreativeKeywords(categories);
-    logger.info(`[Title Filter] Active keywords built from ${categories.length} DB categories (${creativeKeywords.length} total keywords)`);
+    logger.info(
+      `[Title Filter] Active keywords built from ${categories.length} DB categories (${creativeKeywords.length} total keywords)`,
+    );
 
     let matchedCount = 0;
     let savedCount = 0;
@@ -946,7 +1044,7 @@ class ScraperEngine {
       // ---------------------------------------------------------------
       if (!this.isTitleCreative(jobItem.jobTitle, creativeKeywords)) {
         logger.info(
-          `[Title Filter] Dropping non-creative job: "${jobItem.jobTitle}" at ${studio.name}`
+          `[Title Filter] Dropping non-creative job: "${jobItem.jobTitle}" at ${studio.name}`,
         );
         skippedCount++;
         continue;
@@ -960,7 +1058,7 @@ class ScraperEngine {
           logger.info(
             `Skipping old job '${jobItem.jobTitle}' for ${studio.name} posted on ${
               new Date(jobItem.postedAt).toISOString().split("T")[0]
-            } (> ${maxJobAgeDays} days cutoff)`
+            } (> ${maxJobAgeDays} days cutoff)`,
           );
           skippedCount++;
           continue;
@@ -998,7 +1096,7 @@ class ScraperEngine {
       const visualAssets =
         Array.isArray(jobItem.visualAssets) && jobItem.visualAssets.length > 0
           ? jobItem.visualAssets
-          : (studio.visualAssets || []);
+          : studio.visualAssets || [];
 
       const jobData = {
         studio: studio._id,
@@ -1031,7 +1129,7 @@ class ScraperEngine {
             status: "pending", // Requires admin review before publish!
           },
         },
-        { upsert: true }
+        { upsert: true },
       );
       savedCount++;
     }
@@ -1073,7 +1171,10 @@ class ScraperEngine {
       }
 
       // Check overview
-      if (overviewLower && searchTerms.some((term) => overviewLower.includes(term))) {
+      if (
+        overviewLower &&
+        searchTerms.some((term) => overviewLower.includes(term))
+      ) {
         matches.push(cat);
       }
     }
@@ -1137,7 +1238,10 @@ class ScraperEngine {
         return true;
       }
 
-      const strippedText = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      const strippedText = html
+        .replace(/<[^>]+>/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
       if (strippedText.length < 600) {
         return true;
       }
@@ -1155,7 +1259,9 @@ class ScraperEngine {
     const { concurrency = 3, forceAiDiscovery = false } = options;
 
     const studios = await Studio.find({ isActive: true, ...filter });
-    logger.info(`Starting batch scrape for ${studios.length} studios (concurrency: ${concurrency})`);
+    logger.info(
+      `Starting batch scrape for ${studios.length} studios (concurrency: ${concurrency})`,
+    );
 
     const results = [];
     let processed = 0;
@@ -1163,18 +1269,23 @@ class ScraperEngine {
     for (let i = 0; i < studios.length; i += concurrency) {
       const chunk = studios.slice(i, i + concurrency);
       const chunkResults = await Promise.all(
-        chunk.map((s) => this.scrapeStudio(s, { forceAiDiscovery }))
+        chunk.map((s) => this.scrapeStudio(s, { forceAiDiscovery })),
       );
 
       results.push(...chunkResults);
       processed += chunk.length;
 
-      logger.info(`Batch progress: ${processed}/${studios.length} studios processed`);
+      logger.info(
+        `Batch progress: ${processed}/${studios.length} studios processed`,
+      );
       // Brief breathing pause between chunks
       await new Promise((r) => setTimeout(r, 500));
     }
 
-    const totalSaved = results.reduce((acc, r) => acc + (r.stats?.savedToDb || 0), 0);
+    const totalSaved = results.reduce(
+      (acc, r) => acc + (r.stats?.savedToDb || 0),
+      0,
+    );
     const successful = results.filter((r) => r.success).length;
 
     return {

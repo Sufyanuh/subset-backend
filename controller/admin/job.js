@@ -1,5 +1,9 @@
 import { Job } from "../../model/job.js";
 import { JobCategory } from "../../model/jobCategory.js";
+import {
+  validateJobForApproval,
+  validateLocationCountry,
+} from "../../utils/jobValidation.js";
 
 // ➕ Create Job
 export const CreateJob = async (req, res) => {
@@ -42,6 +46,13 @@ export const CreateJob = async (req, res) => {
 
     if (!finalCategories.length && !jobCategory) {
       return res.status(400).json({ message: "Job category is required." });
+    }
+
+    const locValidation = validateLocationCountry(location);
+    if (!locValidation.valid) {
+      return res.status(400).json({
+        message: locValidation.reason || "Job location (Country) is required.",
+      });
     }
 
     const primaryCategory = finalCategories[0] || jobCategory || null;
@@ -370,6 +381,22 @@ export const UpdateJobStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
+
+    if (status === "active") {
+      const existingJob = await Job.findById(id).populate("jobCategory", "name position");
+      if (!existingJob) {
+        return res.status(404).json({ message: "Job not found" });
+      }
+      const validation = validateJobForApproval(existingJob);
+      if (!validation.valid) {
+        return res.status(400).json({
+          message: `Cannot activate job: ${validation.errors.join(". ")}. Please edit the job to complete required details before activating.`,
+          errors: validation.errors,
+          missing: validation.missing,
+        });
+      }
+    }
+
     const updateObj = { status };
     if (status === "active") {
       updateObj.isEdited = false;
@@ -399,14 +426,27 @@ export const updateJobStatus = UpdateJobStatus;
 export const approveJob = async (req, res) => {
   try {
     const { id } = req.params;
+    const existingJob = await Job.findById(id).populate("jobCategory", "name position");
+    if (!existingJob) {
+      return res.status(404).json({ message: "Job not found" });
+    }
+
+    // Enforce full job addition validations
+    const validation = validateJobForApproval(existingJob);
+    if (!validation.valid) {
+      return res.status(400).json({
+        message: `Cannot approve job: ${validation.errors.join(". ")}. Please edit the job to complete required details before approving.`,
+        errors: validation.errors,
+        missing: validation.missing,
+      });
+    }
+
     const job = await Job.findByIdAndUpdate(
       id,
       { status: "active", isEdited: false, editedFields: [], editedFieldChanges: [] },
       { new: true }
     ).populate("jobCategory", "name position");
-    if (!job) {
-      return res.status(404).json({ message: "Job not found" });
-    }
+
     return res.status(200).json({
       message: "Job approved and activated successfully",
       data: job,
