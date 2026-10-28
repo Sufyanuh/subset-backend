@@ -115,7 +115,7 @@ const jobSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["active", "pending", "rejected", "draft", "archived", "closed"],
+      enum: ["active", "pending", "scraped", "rejected", "draft", "archived", "closed"],
       default: "active",
     },
     isEdited: {

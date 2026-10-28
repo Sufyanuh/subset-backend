@@ -527,3 +527,16 @@ export const getPendingJobsCount = async (req, res) => {
   }
 };
 
+export const getScrapedJobsCount = async (req, res) => {
+  try {
+    const count = await Job.countDocuments({ status: "scraped" });
+    return res.status(200).json({
+      success: true,
+      count,
+    });
+  } catch (error) {
+    console.error("Error fetching scraped jobs count:", error);
+    return res.status(500).json({ message: error.message, error });
+  }
+};
+

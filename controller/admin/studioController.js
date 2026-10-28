@@ -448,7 +448,7 @@ export const getStudioJobs = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
-    const [jobs, total, pendingCount, activeCount, rejectedCount] = await Promise.all([
+    const [jobs, total, pendingCount, scrapedCount, activeCount, rejectedCount] = await Promise.all([
       Job.find(query)
         .populate("jobCategory", "name")
         .populate("jobCategories", "name")
@@ -458,6 +458,7 @@ export const getStudioJobs = async (req, res) => {
         .lean(),
       Job.countDocuments(query),
       Job.countDocuments({ ...query, status: "pending" }),
+      Job.countDocuments({ ...query, status: "scraped" }),
       Job.countDocuments({ ...query, status: "active" }),
       Job.countDocuments({ ...query, status: "rejected" }),
     ]);
@@ -476,6 +477,7 @@ export const getStudioJobs = async (req, res) => {
       counts: {
         total,
         pending: pendingCount,
+        scraped: scrapedCount,
         active: activeCount,
         rejected: rejectedCount,
       },

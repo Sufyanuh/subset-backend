@@ -16,7 +16,8 @@ import { logger } from "../utils/logger.js";
  * Tier 1: ATS Direct API & Cheerio Cached Selector Scraper (Zero AI Cost)
  * Tier 2: Self-Healing Gemini Flash Selector Discovery & Puppeteer SPA Fallback
  *
- * Scraped jobs land in "pending" status so admin can review and approve them before publishing.
+ * Scraped jobs land in "scraped" status (separate from manual "pending" submissions).
+ * Admin can review and approve them before publishing.
  */
 class ScraperEngine {
   constructor() {
@@ -376,7 +377,7 @@ class ScraperEngine {
 
       // -----------------------------------------------------------------
       // CATEGORY FILTERING & DEDUPLICATION PERSISTENCE
-      // (Scraped jobs are saved with status="pending" for admin review)
+      // (Scraped jobs are saved with status="scraped" — separate from manual submissions)
       // -----------------------------------------------------------------
       const { savedCount, matchedCount, skippedCount } =
         await this.filterAndSaveJobs(rawJobs, studio);
@@ -1002,7 +1003,7 @@ class ScraperEngine {
 
   /**
    * Filter jobs matching existing JobCategories and persist with deduplication.
-   * Scraped jobs land in "pending" status so admin can review and approve them before publishing.
+   * Scraped jobs land in "scraped" status (separate from manual "pending" submissions).
    */
   async filterAndSaveJobs(rawJobs, studio) {
     if (!rawJobs || rawJobs.length === 0) {
@@ -1074,23 +1075,11 @@ class ScraperEngine {
 
       matchedCount++;
 
-      // 3. Deduplication filter
-      // Use applicationLink or compound studio + title + location
-      const query = jobItem.applicationLink
-        ? {
-            $or: [
-              { applicationLink: jobItem.applicationLink },
-              {
-                companyName: studio.name,
-                jobTitle: jobItem.jobTitle,
-                location: jobItem.location || "",
-              },
-            ],
-          }
-        : {
-            companyName: studio.name,
-            jobTitle: jobItem.jobTitle,
-          };
+      // 3. Baseline Deduplication:
+      // Check existing database records as baseline to ensure jobs already saved
+      // are not re-scraped or overwritten.
+      const cleanTitle = (jobItem.jobTitle || "").trim();
+      const escapedTitle = cleanTitle.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
       // Combine job specific visual assets or fallback to studio visual assets
       const visualAssets =
@@ -1103,7 +1092,7 @@ class ScraperEngine {
         companyName: jobItem.companyName || studio.name,
         aboutCompany: atsDetector.cleanOverview(studio.aboutCompany || ""),
         website: studio.website || studio.careersUrl || "",
-        jobTitle: jobItem.jobTitle,
+        jobTitle: cleanTitle,
         jobCategory: primaryCatId,
         jobCategories: catIds,
         applicationLink: jobItem.applicationLink || studio.careersUrl,
@@ -1119,18 +1108,48 @@ class ScraperEngine {
         companySize: studio.companySize || "",
       };
 
-      // Upsert: newly scraped jobs default to "pending" for admin review!
-      // If a job was already approved, it remains active!
-      await Job.updateOne(
-        query,
-        {
-          $set: jobData,
-          $setOnInsert: {
-            status: "pending", // Requires admin review before publish!
-          },
-        },
-        { upsert: true },
-      );
+      const query = jobItem.applicationLink
+        ? {
+            $or: [
+              { applicationLink: jobItem.applicationLink },
+              {
+                $or: [{ studio: studio._id }, { companyName: studio.name }],
+                jobTitle: { $regex: new RegExp(`^${escapedTitle}$`, "i") },
+              },
+            ],
+          }
+        : {
+            $or: [{ studio: studio._id }, { companyName: studio.name }],
+            jobTitle: { $regex: new RegExp(`^${escapedTitle}$`, "i") },
+          };
+
+      // Check if job already exists in our database baseline
+      const existingJob = await Job.findOne(query);
+
+      if (existingJob) {
+        // Job already exists in the baseline database!
+        // Do not re-scrape, re-insert, or overwrite admin edits/status.
+        if (
+          (!existingJob.visualAssets || existingJob.visualAssets.length === 0) &&
+          visualAssets.length > 0
+        ) {
+          await Job.updateOne(
+            { _id: existingJob._id },
+            { $set: { visualAssets } }
+          );
+        }
+        logger.info(
+          `[Baseline Match] Job "${cleanTitle}" at ${studio.name} already in DB (status: ${existingJob.status}). Skipped re-scraping.`,
+        );
+        skippedCount++;
+        continue;
+      }
+
+      // Genuinely new job found — save to baseline with status="scraped" (separate from manual "pending")
+      await Job.create({
+        ...jobData,
+        status: "scraped",
+      });
       savedCount++;
     }
 
