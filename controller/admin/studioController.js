@@ -83,7 +83,13 @@ export const getStudios = async (req, res) => {
     }
 
     if (scrapeStatus) {
-      query.scrapeStatus = scrapeStatus;
+      if (scrapeStatus === "due") {
+        query.isActive = true;
+        query.scrapeStatus = "idle";
+        query.nextScrapeAt = { $lte: new Date() };
+      } else {
+        query.scrapeStatus = scrapeStatus;
+      }
     }
 
     if (isActive !== undefined) {
@@ -94,8 +100,11 @@ export const getStudios = async (req, res) => {
     const limitNum = Math.min(100, Math.max(1, parseInt(limit, 10)));
     const skip = (pageNum - 1) * limitNum;
 
+    const sortCriteria =
+      scrapeStatus === "due" ? { nextScrapeAt: 1 } : { createdAt: -1 };
+
     const [studios, total] = await Promise.all([
-      Studio.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum).lean(),
+      Studio.find(query).sort(sortCriteria).skip(skip).limit(limitNum).lean(),
       Studio.countDocuments(query),
     ]);
 
