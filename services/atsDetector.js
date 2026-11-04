@@ -10,7 +10,7 @@ import { logger } from "../utils/logger.js";
 class AtsDetector {
   constructor() {
     this.http = axios.create({
-      timeout: 12000,
+      timeout: 30000,
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
