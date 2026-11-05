@@ -25,8 +25,9 @@ async function seedSchedule() {
     const now = Date.now();
     const bulkOps = [];
     let dailyCount = 0;
+    let threeDaysCount = 0;
     let weeklyCount = 0;
-    let monthlyCount = 0;
+    let twoWeeksCount = 0;
 
     for (const studio of studios) {
       const frequency = studio.scrapingFrequency || "weekly";
@@ -35,12 +36,20 @@ async function seedSchedule() {
       if (frequency === "daily") {
         maxOffsetMs = 24 * 60 * 60 * 1000; // 24 hours
         dailyCount += 1;
+      } else if (frequency === "three_days" || frequency === "3days") {
+        maxOffsetMs = 3 * 24 * 60 * 60 * 1000; // 3 days
+        threeDaysCount += 1;
       } else if (frequency === "weekly") {
         maxOffsetMs = 7 * 24 * 60 * 60 * 1000; // 7 days
         weeklyCount += 1;
-      } else if (frequency === "monthly") {
-        maxOffsetMs = 30 * 24 * 60 * 60 * 1000; // 30 days
-        monthlyCount += 1;
+      } else if (
+        frequency === "two_weeks" ||
+        frequency === "biweekly" ||
+        frequency === "every_2_weeks" ||
+        frequency === "monthly"
+      ) {
+        maxOffsetMs = 14 * 24 * 60 * 60 * 1000; // 14 days (2 weeks)
+        twoWeeksCount += 1;
       }
 
       // Stagger randomly within the frequency window
@@ -70,8 +79,9 @@ async function seedSchedule() {
 
     console.log("\n📈 Schedule Distribution Breakdown:");
     console.log(`  - Daily studios (spread over 24h): ${dailyCount}`);
+    console.log(`  - 3 Days studios (spread over 3d):  ${threeDaysCount}`);
     console.log(`  - Weekly studios (spread over 7d):  ${weeklyCount}`);
-    console.log(`  - Monthly studios (spread over 30d): ${monthlyCount}`);
+    console.log(`  - Every 2 Weeks studios (spread over 14d): ${twoWeeksCount}`);
     console.log("\n🎉 All studios staggered successfully! No thundering herd on Day 1.");
   } catch (err) {
     console.error("❌ Error seeding schedule:", err);

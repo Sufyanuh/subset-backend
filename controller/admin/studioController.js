@@ -189,6 +189,33 @@ export const createStudio = async (req, res) => {
     }
 
     const studio = new Studio(normalized);
+    if (
+      scrapingFrequency &&
+      [
+        "daily",
+        "three_days",
+        "3days",
+        "weekly",
+        "two_weeks",
+        "biweekly",
+        "every_2_weeks",
+      ].includes(scrapingFrequency)
+    ) {
+      const normalizedFreq =
+        scrapingFrequency === "3days"
+          ? "three_days"
+          : scrapingFrequency === "biweekly" || scrapingFrequency === "every_2_weeks"
+          ? "two_weeks"
+          : scrapingFrequency;
+      if (studio.scrapingFrequency !== normalizedFreq) {
+        studio.scrapingFrequency = normalizedFreq;
+        studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(
+          normalizedFreq,
+          new Date()
+        );
+      }
+    }
+
     await studio.save();
 
     let scrapeResult = null;
@@ -223,7 +250,15 @@ export const createStudio = async (req, res) => {
 export const updateStudio = async (req, res) => {
   try {
     const { id } = req.params;
-    const { name, careersUrl, website, location, disciplines, isActive } = req.body;
+    const {
+      name,
+      careersUrl,
+      website,
+      location,
+      disciplines,
+      isActive,
+      scrapingFrequency,
+    } = req.body;
 
     const studio = await Studio.findById(id);
     if (!studio) {
@@ -269,6 +304,33 @@ export const updateStudio = async (req, res) => {
         if (atsType !== "custom" && atsType !== "unknown") {
           studio.scrapingConfig.status = "discovered";
         }
+      }
+    }
+
+    if (
+      scrapingFrequency &&
+      [
+        "daily",
+        "three_days",
+        "3days",
+        "weekly",
+        "two_weeks",
+        "biweekly",
+        "every_2_weeks",
+      ].includes(scrapingFrequency)
+    ) {
+      const normalizedFreq =
+        scrapingFrequency === "3days"
+          ? "three_days"
+          : scrapingFrequency === "biweekly" || scrapingFrequency === "every_2_weeks"
+          ? "two_weeks"
+          : scrapingFrequency;
+      if (studio.scrapingFrequency !== normalizedFreq) {
+        studio.scrapingFrequency = normalizedFreq;
+        studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(
+          normalizedFreq,
+          new Date()
+        );
       }
     }
 
@@ -513,26 +575,43 @@ export const updateStudioFrequency = async (req, res) => {
     const { id } = req.params;
     const { frequency } = req.body;
 
-    if (!["daily", "weekly", "monthly"].includes(frequency)) {
+    const validFrequencies = [
+      "daily",
+      "three_days",
+      "3days",
+      "weekly",
+      "two_weeks",
+      "biweekly",
+      "every_2_weeks",
+    ];
+    if (!validFrequencies.includes(frequency)) {
       return res.status(400).json({
         success: false,
-        message: "Invalid frequency. Must be 'daily', 'weekly', or 'monthly'.",
+        message:
+          "Invalid frequency. Must be 'daily', 'three_days', 'weekly', or 'two_weeks'.",
       });
     }
+
+    const normalizedFreq =
+      frequency === "3days"
+        ? "three_days"
+        : frequency === "biweekly" || frequency === "every_2_weeks"
+        ? "two_weeks"
+        : frequency;
 
     const studio = await Studio.findById(id);
     if (!studio) {
       return res.status(404).json({ success: false, message: "Studio not found" });
     }
 
-    studio.scrapingFrequency = frequency;
+    studio.scrapingFrequency = normalizedFreq;
     // Recalculate next run date based on new frequency
-    studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(frequency, new Date());
+    studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(normalizedFreq, new Date());
     await studio.save();
 
     return res.status(200).json({
       success: true,
-      message: `Updated scraping frequency for '${studio.name}' to ${frequency}.`,
+      message: `Updated scraping frequency for '${studio.name}' to ${normalizedFreq}.`,
       data: {
         _id: studio._id,
         name: studio.name,
@@ -591,8 +670,9 @@ export const getScrapingStatus = async (req, res) => {
       scrapingCount,
       failedNeedsReviewCount,
       dailyCount,
+      threeDaysCount,
       weeklyCount,
-      monthlyCount,
+      twoWeeksCount,
       recentScraped,
     ] = await Promise.all([
       Studio.countDocuments({ isActive: true }),
@@ -604,8 +684,15 @@ export const getScrapingStatus = async (req, res) => {
       Studio.countDocuments({ scrapeStatus: "scraping" }),
       Studio.countDocuments({ scrapeStatus: "failed_needs_review" }),
       Studio.countDocuments({ isActive: true, scrapingFrequency: "daily" }),
+      Studio.countDocuments({
+        isActive: true,
+        scrapingFrequency: { $in: ["three_days", "3days"] },
+      }),
       Studio.countDocuments({ isActive: true, scrapingFrequency: "weekly" }),
-      Studio.countDocuments({ isActive: true, scrapingFrequency: "monthly" }),
+      Studio.countDocuments({
+        isActive: true,
+        scrapingFrequency: { $in: ["two_weeks", "biweekly", "every_2_weeks", "monthly"] },
+      }),
       Studio.find({ lastScrapedAt: { $ne: null } })
         .sort({ lastScrapedAt: -1 })
         .limit(10)
@@ -645,8 +732,9 @@ export const getScrapingStatus = async (req, res) => {
           failedNeedsReviewCount,
           byFrequency: {
             daily: dailyCount,
+            threeDays: threeDaysCount,
             weekly: weeklyCount,
-            monthly: monthlyCount,
+            twoWeeks: twoWeeksCount,
           },
         },
         recentScraped,

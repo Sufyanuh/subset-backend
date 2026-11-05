@@ -205,7 +205,7 @@ const studioSchema = new Schema(
     // ── Automated Scraping Scheduler Fields ─────────────────────
     scrapingFrequency: {
       type: String,
-      enum: ["daily", "weekly", "monthly"],
+      enum: ["daily", "three_days", "3days", "weekly", "two_weeks", "biweekly", "monthly"],
       default: "weekly",
       index: true,
     },

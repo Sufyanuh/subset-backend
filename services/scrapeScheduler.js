@@ -328,11 +328,18 @@ class ScrapeScheduler {
     let intervalMs = 7 * 24 * 60 * 60 * 1000; // default weekly
 
     if (frequency === "daily") {
-      intervalMs = 24 * 60 * 60 * 1000;
+      intervalMs = 24 * 60 * 60 * 1000; // 1 day
+    } else if (frequency === "three_days" || frequency === "3days") {
+      intervalMs = 3 * 24 * 60 * 60 * 1000; // 3 days
     } else if (frequency === "weekly") {
-      intervalMs = 7 * 24 * 60 * 60 * 1000;
-    } else if (frequency === "monthly") {
-      intervalMs = 30 * 24 * 60 * 60 * 1000;
+      intervalMs = 7 * 24 * 60 * 60 * 1000; // 7 days (1 week)
+    } else if (
+      frequency === "two_weeks" ||
+      frequency === "biweekly" ||
+      frequency === "every_2_weeks" ||
+      frequency === "monthly"
+    ) {
+      intervalMs = 14 * 24 * 60 * 60 * 1000; // 14 days (every 2 weeks)
     }
 
     // Jitter: random between -15 and +15 minutes
