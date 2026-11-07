@@ -157,6 +157,8 @@ export const createStudio = async (req, res) => {
       website,
       location,
       disciplines,
+      scrapingFrequency,
+      frequency,
       scrapeImmediately = false,
     } = req.body;
 
@@ -189,8 +191,9 @@ export const createStudio = async (req, res) => {
     }
 
     const studio = new Studio(normalized);
+    const targetFreq = scrapingFrequency || frequency;
     if (
-      scrapingFrequency &&
+      targetFreq &&
       [
         "daily",
         "three_days",
@@ -199,21 +202,24 @@ export const createStudio = async (req, res) => {
         "two_weeks",
         "biweekly",
         "every_2_weeks",
-      ].includes(scrapingFrequency)
+      ].includes(targetFreq)
     ) {
       const normalizedFreq =
-        scrapingFrequency === "3days"
+        targetFreq === "3days"
           ? "three_days"
-          : scrapingFrequency === "biweekly" || scrapingFrequency === "every_2_weeks"
+          : targetFreq === "biweekly" || targetFreq === "every_2_weeks"
           ? "two_weeks"
-          : scrapingFrequency;
-      if (studio.scrapingFrequency !== normalizedFreq) {
-        studio.scrapingFrequency = normalizedFreq;
-        studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(
-          normalizedFreq,
-          new Date()
-        );
-      }
+          : targetFreq;
+      studio.scrapingFrequency = normalizedFreq;
+      studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(
+        normalizedFreq,
+        new Date()
+      );
+    } else {
+      studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(
+        studio.scrapingFrequency || "weekly",
+        new Date()
+      );
     }
 
     await studio.save();
@@ -258,6 +264,7 @@ export const updateStudio = async (req, res) => {
       disciplines,
       isActive,
       scrapingFrequency,
+      frequency,
     } = req.body;
 
     const studio = await Studio.findById(id);
@@ -307,8 +314,9 @@ export const updateStudio = async (req, res) => {
       }
     }
 
+    const targetFreq = scrapingFrequency || frequency;
     if (
-      scrapingFrequency &&
+      targetFreq &&
       [
         "daily",
         "three_days",
@@ -317,14 +325,14 @@ export const updateStudio = async (req, res) => {
         "two_weeks",
         "biweekly",
         "every_2_weeks",
-      ].includes(scrapingFrequency)
+      ].includes(targetFreq)
     ) {
       const normalizedFreq =
-        scrapingFrequency === "3days"
+        targetFreq === "3days"
           ? "three_days"
-          : scrapingFrequency === "biweekly" || scrapingFrequency === "every_2_weeks"
+          : targetFreq === "biweekly" || targetFreq === "every_2_weeks"
           ? "two_weeks"
-          : scrapingFrequency;
+          : targetFreq;
       if (studio.scrapingFrequency !== normalizedFreq) {
         studio.scrapingFrequency = normalizedFreq;
         studio.nextScrapeAt = scrapeScheduler.calculateNextScrapeDate(

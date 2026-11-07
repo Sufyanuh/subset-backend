@@ -9,6 +9,7 @@ import { atsDetector } from "./atsDetector.js";
 import { aiSelectorService } from "./aiSelectorService.js";
 import { domCleaner } from "./domCleaner.js";
 import { studioMetadataEnricher } from "./studioMetadataEnricher.js";
+import { jobDetailExtractor } from "./jobDetailExtractor.js";
 import { logger } from "../utils/logger.js";
 
 /**
@@ -1049,6 +1050,39 @@ class ScraperEngine {
         );
         skippedCount++;
         continue;
+      }
+
+      // Deep Enrichment: If job overview or salary is missing, fetch the individual detail page
+      if (
+        jobItem.applicationLink &&
+        jobItem.applicationLink.startsWith("http") &&
+        (!jobItem.overview || jobItem.overview.length < 100 || !jobItem.salaryRange)
+      ) {
+        try {
+          const detail = await jobDetailExtractor.extractFromUrl(jobItem.applicationLink);
+          if (detail) {
+            if (!jobItem.overview || jobItem.overview.length < 100) {
+              jobItem.overview = detail.overview || jobItem.overview;
+            }
+            if (!jobItem.salaryRange && detail.salaryRange) {
+              jobItem.salaryRange = detail.salaryRange;
+            }
+            if (!jobItem.location && detail.location) {
+              jobItem.location = detail.location;
+            }
+            if ((!jobItem.contractType || jobItem.contractType === "Full-time") && detail.contractType) {
+              jobItem.contractType = detail.contractType;
+            }
+            if ((!jobItem.workplaceType || jobItem.workplaceType === "On-site") && detail.workplaceType) {
+              jobItem.workplaceType = detail.workplaceType;
+            }
+            if (!jobItem.postedAt && detail.postedAt) {
+              jobItem.postedAt = detail.postedAt;
+            }
+          }
+        } catch (detailErr) {
+          logger.debug(`[Scraper] Deep enrichment skipped for ${jobItem.applicationLink}: ${detailErr.message}`);
+        }
       }
 
       // Check posted date cutoff (Skip old jobs!)

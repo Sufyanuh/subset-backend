@@ -1,5 +1,6 @@
 import { Job } from "../../model/job.js";
 import { JobCategory } from "../../model/jobCategory.js";
+import { jobDetailExtractor } from "../../services/jobDetailExtractor.js";
 import {
   validateJobForApproval,
   validateLocationCountry,
@@ -537,6 +538,35 @@ export const getScrapedJobsCount = async (req, res) => {
   } catch (error) {
     console.error("Error fetching scraped jobs count:", error);
     return res.status(500).json({ message: error.message, error });
+  }
+};
+
+/**
+ * Extract and autofill job details from a given job URL (Schema.org / JSON-LD / HTML)
+ * POST /api/admin/job/autofill-from-url
+ */
+export const autofillJobFromUrl = async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url || typeof url !== "string") {
+      return res.status(400).json({
+        success: false,
+        message: "A valid Job URL is required.",
+      });
+    }
+
+    const data = await jobDetailExtractor.extractFromUrl(url);
+    return res.status(200).json({
+      success: true,
+      message: "Job details extracted successfully",
+      data,
+    });
+  } catch (error) {
+    console.error("Error in autofillJobFromUrl:", error);
+    return res.status(500).json({
+      success: false,
+      message: error.message || "Failed to extract job details from the provided URL.",
+    });
   }
 };
 
