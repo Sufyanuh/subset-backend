@@ -347,7 +347,7 @@ class AtsDetector {
           }
         });
 
-        // Clean up redundant empty paragraphs
+        // Clean up redundant empty paragraphs (safe non-backtracking regex)
         let htmlOutput = $.html().trim();
         htmlOutput = htmlOutput
           .replace(/<ul([^>]*)>(\s*<br\s*\/?>)+/gi, "<ul$1>")
@@ -357,7 +357,7 @@ class AtsDetector {
           .replace(/<\/li>(\s*<br\s*\/?>)+<li>/gi, "</li><li>")
           .replace(/<li>(\s*<br\s*\/?>)+/gi, "<li>")
           .replace(/(\s*<br\s*\/?>)+<\/li>/gi, "</li>")
-          .replace(/(?:<p[^>]*>\s*(?:<br\s*\/?>|\s*)*<\/p>\s*){2,}/gi, "<p><br/></p>");
+          .replace(/(?:<p[^>]*>(?:[\s\u00A0\u200B]|&nbsp;|<br\s*\/?>)*<\/p>\s*){2,}/gi, "<p><br/></p>");
 
         return htmlOutput;
       } catch (err) {
