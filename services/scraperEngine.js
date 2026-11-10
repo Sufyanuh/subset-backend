@@ -1081,7 +1081,9 @@ class ScraperEngine {
             }
           }
         } catch (detailErr) {
-          logger.debug(`[Scraper] Deep enrichment skipped for ${jobItem.applicationLink}: ${detailErr.message}`);
+          logger.debug(
+            `[Scraper] Deep enrichment skipped for ${jobItem?.applicationLink || "link"}: ${detailErr?.message || detailErr}`
+          );
         }
       }
 

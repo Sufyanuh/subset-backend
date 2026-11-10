@@ -58,6 +58,7 @@ export const logger = {
     REQUEST: "🌐 REQUEST",
     DATABASE: "🗄️  DB",
     CRON: "⏰ CRON",
+    DEBUG: "🔍 DEBUG",
   },
 
   // 📝 Write to multiple log files
@@ -103,6 +104,7 @@ export const logger = {
         "🌐": "\x1b[36m", // Cyan
         "🗄️": "\x1b[35m", // Magenta
         "⏰": "\x1b[90m", // Gray
+        "🔍": "\x1b[90m", // Gray
       };
 
       const color = colors[level.split(" ")[0]] || "\x1b[0m";
@@ -127,6 +129,13 @@ export const logger = {
   // ℹ️ General info
   info: (message, data = null) => {
     logger.writeLog(logger.levels.INFO, message, data);
+  },
+
+  // 🔍 Debug info (only writes if not production or DEBUG enabled)
+  debug: (message, data = null) => {
+    if (process.env.NODE_ENV !== "production" || process.env.DEBUG) {
+      logger.writeLog(logger.levels.DEBUG, message, data, false);
+    }
   },
 
   // ⚠️ Warnings
