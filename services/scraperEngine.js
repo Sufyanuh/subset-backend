@@ -5,7 +5,6 @@ import puppeteer from "puppeteer";
 import { Job } from "../model/job.js";
 import { JobCategory } from "../model/jobCategory.js";
 import { Studio } from "../model/studio.js";
-import { validateLocationCountry } from "../utils/jobValidation.js";
 import { logger } from "../utils/logger.js";
 import { aiSelectorService } from "./aiSelectorService.js";
 import { atsDetector } from "./atsDetector.js";
@@ -1144,41 +1143,23 @@ class ScraperEngine {
         companySize: studio.companySize || "",
       };
 
-      // Check if job already exists in our database baseline.
-      // 1. Find all existing jobs at the same studio with the same job title.
-      const existingJobs = await Job.find({
-        $or: [{ studio: studio._id }, { companyName: studio.name }],
-        jobTitle: { $regex: new RegExp(`^${escapedTitle}$`, "i") },
-      });
-
-      const candidateLocation = (jobData.location || "").trim();
-      const candidateLink = (jobData.applicationLink || "").trim();
-
-      // Find an existing job that matches the same location
-      let existingJob = existingJobs.find((job) => {
-        const jobLoc = (job.location || "").trim();
-        return this.isSameLocation(candidateLocation, jobLoc);
-      });
-
-      // 2. Fallback check: if not matched by title, check specific ATS URL (non-generic)
-      const isGenericLink =
-        !candidateLink ||
-        candidateLink === studio.careersUrl ||
-        candidateLink === studio.website ||
-        candidateLink.startsWith("mailto:");
-
-      if (!existingJob && !isGenericLink) {
-        const matchByLink = await Job.findOne({ applicationLink: candidateLink });
-        if (matchByLink) {
-          const matchLoc = (matchByLink.location || "").trim();
-          if (
-            this.isSameLocation(candidateLocation, matchLoc) ||
-            (!matchLoc && candidateLocation)
-          ) {
-            existingJob = matchByLink;
+      const query = jobItem.applicationLink
+        ? {
+            $or: [
+              { applicationLink: jobItem.applicationLink },
+              {
+                $or: [{ studio: studio._id }, { companyName: studio.name }],
+                jobTitle: { $regex: new RegExp(`^${escapedTitle}$`, "i") },
+              },
+            ],
           }
-        }
-      }
+        : {
+            $or: [{ studio: studio._id }, { companyName: studio.name }],
+            jobTitle: { $regex: new RegExp(`^${escapedTitle}$`, "i") },
+          };
+
+      // Check if job already exists in our database baseline
+      const existingJob = await Job.findOne(query);
 
       if (existingJob) {
         // Job already exists in the baseline database!
@@ -1190,14 +1171,14 @@ class ScraperEngine {
         ) {
           updates.visualAssets = visualAssets;
         }
-        if (!existingJob.location && candidateLocation) {
-          updates.location = candidateLocation;
+        if (!existingJob.location && jobData.location) {
+          updates.location = jobData.location;
         }
         if (Object.keys(updates).length > 0) {
           await Job.updateOne({ _id: existingJob._id }, { $set: updates });
         }
         logger.info(
-          `[Baseline Match] Job "${cleanTitle}" at ${studio.name} (${existingJob.location || "no location"}) already in DB (status: ${existingJob.status}). Skipped re-scraping.`,
+          `[Baseline Match] Job "${cleanTitle}" at ${studio.name} already in DB (status: ${existingJob.status}). Skipped re-scraping.`,
         );
         skippedCount++;
         continue;
@@ -1257,55 +1238,6 @@ class ScraperEngine {
     }
 
     return matches;
-  }
-
-  /**
-   * Helper: Compare two location strings to determine if they represent the same place.
-   * Allows distinct job entries when a studio posts the same role in different cities/countries.
-   */
-  isSameLocation(loc1, loc2) {
-    const l1 = (loc1 || "").trim().toLowerCase();
-    const l2 = (loc2 || "").trim().toLowerCase();
-
-    // Both identical (or both empty)
-    if (l1 === l2) return true;
-    // One empty, other not -> treated as different
-    if (!l1 || !l2) return false;
-
-    // Remote / Worldwide check
-    const c1 = validateLocationCountry(loc1);
-    const c2 = validateLocationCountry(loc2);
-    const isRemote1 =
-      l1.includes("remote") || l1.includes("worldwide") || c1.country === "Worldwide";
-    const isRemote2 =
-      l2.includes("remote") || l2.includes("worldwide") || c2.country === "Worldwide";
-    if (isRemote1 || isRemote2) {
-      return isRemote1 === isRemote2;
-    }
-
-    // If both have recognized countries and they differ -> definitely DIFFERENT
-    if (c1.valid && c2.valid && c1.country !== c2.country) {
-      return false;
-    }
-
-    // Compare city/first segment before comma
-    const getCitySegment = (loc) => {
-      const seg = (loc || "").split(",")[0].trim().toLowerCase();
-      return seg.replace(/[^\w\s]/g, "").trim();
-    };
-
-    const city1 = getCitySegment(loc1);
-    const city2 = getCitySegment(loc2);
-
-    if (city1 && city2 && city1 !== city2) {
-      return false;
-    }
-
-    if (city1 && city2 && city1 === city2) {
-      return true;
-    }
-
-    return false;
   }
 
   /**
